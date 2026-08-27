@@ -38,10 +38,11 @@ The monthly re-scan specification distilled from 15 batches, 111 searches, 34 sc
 | Trigger | Date/condition | Effect |
 |---|---|---|
 | **OpenAI in-app monetization rails** | "Expected 2026," terms TBA — *approaching* | PromptShare TAM multiplier. **Urgency signal: the tracker must exist before money flows** |
-| **OpenAI native app analytics** | Not found as of Jul 4, 2026 ✅ | PromptShare kill signal — not firing. Check monthly |
-| **LinkedIn Creator Marketplace GA** | Launched Jun 10, 2026; **alpha, invite-only, US/CA** as of Jul 4 | Not GA → window logic holds. (RateCard retired regardless; informs RateBook context) |
+| **OpenAI native app analytics** | Not found as of Aug 27, 2026 ✅ (devs publicly requesting a dashboard) | PromptShare kill signal — not firing. Check monthly |
+| **LinkedIn Creator Marketplace GA** | Launched Jun 10, 2026; **alpha, invite-only, US/CA** as of Aug 27 | Not GA → window logic holds. (RateCard retired regardless; informs RateBook context) |
 | **Litmus/Email-on-Acid AI-summary preview** | Not shipped as of Jul 4, 2026 | InboxLens flip: if still unshipped **Jan 2027**, 74 → ~78 |
-| Cloudflare default AI-blocking | Sept 15, 2026 | Publisher-monetization layer recheck |
+| Cloudflare default AI-blocking | Sept 15, 2026 — confirmed Aug 27; Pay Per Crawl evolving into **Pay Per Use** (paid on AI-answer appearance) | Publisher-monetization layer recheck; hardens answer-economy measurement G1 |
+| Sales-roleplay vendor ships marketing-scenario library | Not observed as of Aug 27, 2026 | GrowthReps G3 warning — vendor list: Mindtickle, SmartWinnr, Allego. Check monthly |
 | Chrome MV2 final removal | Now (Chrome 150/151) | ExtReclaim forced-seller window — live, sequenced third in arbitrage track |
 | Clip-tool quality ceiling | Undated, model-dependent | Next-gen short-form slot vs. anchored incumbents (+329% human-editor demand despite saturated tools) |
 | OpenAI/Google agent-commerce spec revisions | Per release | FeedFixer absorption check |
@@ -65,3 +66,10 @@ Trigger table (fired / not fired / approaching) → any new hypotheses that pass
 - LinkedIn Creator Marketplace: [launched June 10, alpha, invite-only US/CA](https://www.socialmediatoday.com/news/linkedin-launches-its-own-creator-marketplace/822569/) — not GA
 - Litmus: [still advising on the "summary layer," no preview product shipped](https://www.litmus.com/blog/ai-generated-summaries) — InboxLens flip tracking toward Jan 2027
 - No kill signals fired. Board unchanged. Recommendation unchanged: validation sprints > further sourcing.
+
+**Cycle 2 — August 27, 2026 (Batch 29):**
+- OpenAI monetization still approaching (ACP checkout, terms TBA); native analytics absent and [publicly requested by app developers](https://community.openai.com/t/is-there-an-analytics-dashboard-for-published-chatgpt-apps/1387666) → **PromptShare window open, demand signal upgraded**
+- [Cloudflare Sept 15 wall confirmed; Pay Per Crawl → Pay Per Use](https://thenextweb.com/news/cloudflare-block-ai-crawlers-pay-publishers) → answer-economy measurement G1 hardens; CrawlLedger hypothesis killed (Cloudflare runs reconciliation natively)
+- GrowthReps marketing vertical re-verified empty; sales-roleplay adjacency = proof #3; new G3 tripwire installed (see trigger table)
+- LinkedIn Creator Marketplace still alpha. New platform launches (Antigravity 2.0, Muse Glimmer) judged not reopening events.
+- No kill signals fired. Board unchanged. Recommendation unchanged, three cycles running: validate, don't source.
