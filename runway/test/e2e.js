@@ -136,23 +136,20 @@ async function run(name, fn) {
   await run('import rejects junk and repairs a damaged backup', async () => {
     const { ctx, errors } = await newCtx();
     const p = await ctx.newPage();
-    const alerts = [];
-    p.removeAllListeners('dialog');
-    p.on('dialog', d => { alerts.push(d.message()); d.accept(); });
     await p.goto(URL);
+    const alertText = async () => { await p.waitForSelector('#alertDlg[open]'); const t = await p.locator('#alertDlg').innerText(); await p.click('#alertDlg [data-ok]'); return t; };
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runway-'));
     const junk = path.join(dir, 'junk.json'); fs.writeFileSync(junk, 'not json at all');
     await p.setInputFiles('#importFile', junk);
-    await p.waitForTimeout(200);
-    assert.match(alerts.pop() || '', /not a valid/i);
+    assert.match(await alertText(), /not a valid/i);
     const damaged = path.join(dir, 'damaged.json');
     fs.writeFileSync(damaged, JSON.stringify({
       accounts: [{ name: 'Savings', balance: '9000' }],
       bills: [{ name: 'Phone', amount: 80, freq: 'monthly', next: '2030-02-05' }, { name: 'Broken', amount: 10, next: 'never' }]
     }));
     await p.setInputFiles('#importFile', damaged);
-    await p.waitForTimeout(200);
-    assert.match(alerts.pop() || '', /repaired/i);
+    assert.match(await alertText(), /repaired/i);
+    await p.waitForTimeout(100);
     const s = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), KEY);
     assert.equal(s.accounts[0].balance, 9000);
     assert.deepEqual(s.bills.map(b => b.name), ['Phone']);
@@ -167,6 +164,7 @@ async function run(name, fn) {
     await p.click('text=Explore with sample data');
     await p.click('[data-tab=settings]');
     await p.click('[data-action=reset]');
+    await p.click('#alertDlg [data-ok]');
     assert.ok(await p.locator('.welcome').isVisible());
     await p.click('[data-action=restore-latest]');
     assert.ok(await p.locator('.hero-main').isVisible());

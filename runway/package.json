@@ -4,6 +4,7 @@
   "description": "Personal finance runway tracker",
   "scripts": {
     "test": "TZ=America/New_York node --test test/*.test.js",
-    "test:e2e": "node test/e2e.js"
+    "test:e2e": "node test/e2e.js",
+    "test:sync": "node test/sync.js"
   }
 }

@@ -97,9 +97,28 @@ try {
   if (u && ['all', 'essential', 'extras'].includes(u.billFilter)) ui.billFilter = u.billFilter;
 } catch (e) {}
 
+/* Change tracking for sync: when the data last changed on this device, and
+   which of those changes the cloud copy already has. Data saved before sync
+   existed gets a stamp of 1, so any real cloud copy counts as newer, while
+   still marking it as unsynced so it is snapshotted before being replaced. */
+let lastPersistedJSON = JSON.stringify(S);
+let localUpdatedAt = finite(Number(ls.get(KEY + '.updatedAt')), 0) || (hasData(S) ? 1 : 0);
+let syncedAt = finite(Number(ls.get(KEY + '.syncedAt')), 0);
+let applyingRemote = false;
+function setStamp(k, v) { try { ls.set(KEY + '.' + k, String(v)); } catch (e) {} }
+
 function persist() {
+  const json = JSON.stringify(S);
+  if (json !== lastPersistedJSON) {
+    lastPersistedJSON = json;
+    if (!applyingRemote) {
+      localUpdatedAt = Date.now();
+      setStamp('updatedAt', localUpdatedAt);
+      scheduleCloudPush();
+    }
+  }
   try {
-    ls.set(KEY, JSON.stringify(S));
+    ls.set(KEY, json);
     storage.ok = true; storage.msg = '';
   } catch (e) {
     storage.ok = false; storage.msg = storageError(e);
@@ -183,6 +202,10 @@ const ICON_PATHS = {
   tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5"/>',
   bank: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
   archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  cloudcheck: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/><path d="m9 13.5 2 2 4-4"/>',
+  cloudoff: '<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>',
+  share: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" x2="12" y1="2" y2="15"/>',
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>'
 };
 const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
@@ -302,19 +325,21 @@ function renderShell() {
 function renderBanners() {
   const el = document.getElementById('banners');
   const items = [];
-  if (!storage.ok) items.push(['red', `<b>Changes are not being saved.</b> ${esc(storage.msg)} Export a backup now so you don't lose your work.`, `<button class="btn sm tinted" data-action="export">Export</button>`]);
+  if (sync.status === 'error') items.push(['red', `<b>Sync paused.</b> ${esc(sync.detail || 'Your changes are saved on this device and will sync when possible.')}`, '']);
+  if (!storage.ok && !['synced', 'saving', 'connecting'].includes(sync.status)) items.push(['red', `<b>Changes are not being saved.</b> ${esc(storage.msg)} Export a backup now so you don't lose your work.`, `<button class="btn sm tinted" data-action="export">Export</button>`]);
   loadNotices.forEach((n, i) => items.push([n[0] === 'critical' ? 'red' : 'orange', n[1], `<button class="btn sm" data-action="dismiss-notice" data-i="${i}">Dismiss</button>`]));
   el.innerHTML = items.map(([c, h, btn]) => `<div class="group"><div class="list-row has-tile">${tile('alert', c)}<div class="body" style="white-space:normal;font-size:14px">${h}</div>${btn}</div></div>`).join('');
   el.hidden = !items.length;
 }
 
 function renderView() {
-  if (ui.view === 'overview' && !model) { app.innerHTML = welcomeHTML(); return; }
+  if (ui.view === 'overview' && !model) { app.innerHTML = welcomeHTML(); renderSyncStatus(); return; }
   const views = { overview: overviewHTML, bills: billsView, income: incomeView, accounts: accountsView, history: historyView, settings: settingsView };
   const fade = lastView !== ui.view ? ' fade' : '';
   lastView = ui.view;
   app.innerHTML = `<div class="stack${fade}">${views[ui.view]()}</div>`;
   if (ui.view === 'overview') drawChart(model.all, model.ess, chartRange());
+  renderSyncStatus();
 }
 const chartRange = () => Math.min(ui.range, S.settings.horizon);
 
@@ -652,7 +677,22 @@ function historyView() {
 function settingsView() {
   const snaps = readSnapshots().reverse();
   const le = S.settings.lastExport, fresh = le && daysBetween(parse(le), today()) <= 14;
+  const syncFoot = {
+    local: 'Your data is saved in this browser only. Open Runway from its claude.ai link to sync it across your devices.',
+    signedout: 'Sign in to claude.ai to sync your data across devices.',
+  }[sync.status] || 'Your data syncs privately through your Claude account. Open this page on any device where you’re signed in and it’s all there. Nobody else who opens the link can see it.';
   return `<div style="max-width:720px;width:100%;margin:0 auto">
+    <div class="sect"><span>Sync</span></div>
+    <div class="group">
+      <div class="list-row has-tile">${tile('cloud', 'blue')}<div class="body">Sync Across Devices</div><span class="value" id="syncValue"></span></div>
+    </div>
+    <div class="sect-foot">${syncFoot}</div>
+
+    <div class="sect"><span>Home Screen</span></div>
+    <div class="group">
+      <div class="list-row has-tile">${tile('share', 'gray')}<div class="body"><div class="t">Add to Home Screen</div><div class="s" style="white-space:normal">On iPhone or iPad, open this page in Safari, tap Share, then Add to Home Screen. On Android, use Chrome’s menu, then Add to Home screen.</div></div></div>
+    </div>
+
     <div class="sect"><span>Projection</span></div>
     <div class="group">
       <label class="list-row has-tile">${tile('shield', 'green')}<div class="body">Safety Cushion</div><span class="value" style="display:flex;align-items:center;gap:2px">$<input type="number" id="setCushion" min="0" step="100" value="${S.settings.cushion}" data-setting="cushion" aria-label="Safety cushion in dollars"></span></label>
@@ -1040,40 +1080,228 @@ function sampleState() {
 /* =====================================================================
  * Backup import / export / restore
  * ===================================================================== */
-function exportBackup() {
-  S.settings.lastExport = iso(today());
-  persist();
+async function exportBackup() {
   const payload = { app: 'runway-tracker', exportedAt: new Date().toISOString(), ...S };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `runway-backup-${iso(today())}.json`;
-  document.body.appendChild(link); link.click(); link.remove();
-  setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+  const text = JSON.stringify(payload, null, 2);
+  const filename = `runway-backup-${iso(today())}.json`;
+  const dl = await useCapability('downloads');
+  if (dl) {
+    try { await dl.save({ filename, data: text }); }
+    catch (e) {
+      if (e && e.code === 'declined') return;
+      await showAlert('Couldn’t Save Backup', e && e.code === 'rate_limited' ? 'A save prompt is already open. Try again in a moment.' : 'Saving files isn’t available here right now.');
+      return;
+    }
+  } else {
+    const blob = new Blob([text], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+  }
+  S.settings.lastExport = iso(today());
   render();
-  toast('Backup downloaded. Keep it somewhere safe, like cloud storage.');
+  toast('Backup saved');
 }
 async function importBackup(file) {
-  if (file.size > MAX_IMPORT_BYTES) { alert('That file is too large to be a Runway Tracker backup.'); return; }
+  if (file.size > MAX_IMPORT_BYTES) { await showAlert('File Too Large', 'That file is too large to be a Runway backup.'); return; }
   let parsed;
   try { parsed = C.normalizeState(JSON.parse(await file.text())); }
-  catch (err) { alert('Could not import: this is not a valid Runway Tracker backup.'); return; }
+  catch (err) { await showAlert('Can’t Import File', 'This is not a valid Runway backup.'); return; }
   const { state, warnings } = parsed;
-  if (!hasData(state)) { alert('That backup has no accounts, bills or income in it. Nothing was imported.'); return; }
-  const msg = `Replace your current data with this backup?\n\n${state.accounts.length} accounts, ${state.bills.length} bills, ${state.income.length} income sources.` +
+  if (!hasData(state)) { await showAlert('Nothing to Import', 'That backup has no accounts, bills or income in it.'); return; }
+  const msg = `${state.accounts.length} accounts, ${state.bills.length} bills, ${state.income.length} income sources.` +
     (warnings.length ? `\n\n${warnings.length} problem(s) will be repaired:\n• ${warnings.slice(0, 5).join('\n• ')}` : '') +
     (hasData(S) ? '\n\nA snapshot of your current data is saved first.' : '');
-  if (!confirm(msg)) return;
+  if (!await askConfirm({ title: 'Replace With Backup?', message: msg, ok: 'Replace', destructive: true })) return;
   snapshot('Before import', S);
   commit('Backup imported.', () => { S = state; });
 }
-function restoreSnapshot(snap) {
+async function restoreSnapshot(snap) {
   if (!snap) { toast('No snapshot found.'); return; }
   let st;
-  try { st = C.normalizeState(snap.data).state; } catch (e) { alert('That snapshot is damaged and cannot be restored.'); return; }
-  if (hasData(S) && !confirm(`Restore the snapshot from ${new Date(snap.ts).toLocaleString()}? Your current data is saved as a snapshot first.`)) return;
+  try { st = C.normalizeState(snap.data).state; } catch (e) { await showAlert('Can’t Restore', 'That snapshot is damaged.'); return; }
+  if (hasData(S) && !await askConfirm({ title: 'Restore Snapshot?', message: `Restore the copy from ${new Date(snap.ts).toLocaleString()}. Your current data is saved as a snapshot first.`, ok: 'Restore' })) return;
   snapshot('Before restore', S);
   commit('Snapshot restored.', () => { S = st; });
+}
+
+/* =====================================================================
+ * Platform capabilities (present only when opened from claude.ai)
+ * ===================================================================== */
+function useCapability(name) {
+  try {
+    if (window.claude && typeof window.claude.use === 'function') return window.claude.use(name).catch(() => null);
+  } catch (e) {}
+  return Promise.resolve(null);
+}
+
+/* =====================================================================
+ * Alerts (the claude.ai frame blocks confirm() and alert())
+ * ===================================================================== */
+const alertDlg = document.getElementById('alertDlg');
+function askConfirm({ title, message = '', ok = 'OK', cancel = 'Cancel', destructive = false }) {
+  return new Promise(resolve => {
+    alertDlg.innerHTML = `<div class="alert-box"><h3>${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ''}</div>
+      <div class="alert-btns${cancel ? ' two' : ''}">${cancel ? `<button type="button" data-r="0">${esc(cancel)}</button>` : ''}<button type="button" data-r="1" data-ok class="${destructive ? 'destructive' : 'strong'}">${esc(ok)}</button></div>`;
+    let settled = false;
+    const done = v => { if (settled) return; settled = true; if (alertDlg.open) alertDlg.close(); resolve(v); };
+    alertDlg.onclick = e => { const b = e.target.closest('[data-r]'); if (b) done(b.dataset.r === '1'); };
+    alertDlg.oncancel = e => { e.preventDefault(); done(false); };
+    if (alertDlg.open) alertDlg.close();
+    alertDlg.showModal();
+    const focus = alertDlg.querySelector(cancel ? '[data-r="0"]' : '[data-ok]');
+    if (focus) focus.focus();
+  });
+}
+const showAlert = (title, message) => askConfirm({ title, message, ok: 'OK', cancel: null });
+
+/* =====================================================================
+ * Cloud sync: one private document per person, via claude.ai
+ *
+ * The whole state lives in data/users/<id>/runway, a path only that person
+ * can read or write. Each write carries the time of the change it holds;
+ * the newer copy wins. Before a copy with unsynced local edits is replaced,
+ * it is saved as a snapshot on this device, so nothing is lost silently.
+ * ===================================================================== */
+const DEVICE = (() => {
+  let d = ls.get(KEY + '.device');
+  if (!d) { d = C.uid(); try { ls.set(KEY + '.device', d); } catch (e) {} }
+  return d;
+})();
+const sync = { status: 'local', detail: '', ref: null, writing: false, again: false, pending: null, first: true, loadTimer: null, pushTimer: null, at: 0 };
+
+function setSync(status, detail = '') {
+  sync.status = status; sync.detail = detail;
+  if (status === 'synced') sync.at = Date.now();
+  renderSyncStatus();
+  renderBanners();
+}
+
+async function startSync() {
+  const [db, user] = await Promise.all([useCapability('db'), useCapability('user')]);
+  if (!db || !user) { setSync('local'); return; }
+  setSync('connecting');
+  const id = await user.id();
+  if (!id) { setSync('signedout'); return; }
+  try { sync.ref = db.doc(`data/users/${id}/runway`); }
+  catch (e) { setSync('error', 'Sync could not start. Your data is saved on this device.'); return; }
+  sync.loadTimer = setTimeout(() => { if (sync.status === 'connecting') setSync('offline'); }, 10000);
+  sync.unsub = sync.ref.onSnapshot(onRemote, err => {
+    clearTimeout(sync.loadTimer);
+    sync.ref = null;
+    if (err && err.code === 'revoked') setSync('local');
+    else setSync('error', 'Sync stopped. Your changes are saved on this device. Reload to reconnect.');
+  });
+}
+
+function onRemote(snap) {
+  if (snap.metadata.hasPendingWrites) return;          // the echo of our own write
+  const definitive = !snap.metadata.fromCache;
+  if (definitive) clearTimeout(sync.loadTimer);
+  const first = sync.first;
+  if (definitive) sync.first = false;
+
+  if (!snap.exists) {
+    if (!definitive) return;
+    if (hasData(S)) pushNow(); else setSync('synced');   // first device: upload what is here
+    return;
+  }
+  const body = snap.data() || {};
+  let remote;
+  try { remote = C.normalizeState(body.state || {}).state; }
+  catch (e) { setSync('error', 'The synced copy could not be read. Your data on this device is unchanged.'); return; }
+  const ru = finite(body.updatedAt, 0);
+  if (JSON.stringify(remote) === JSON.stringify(S)) {
+    syncedAt = Math.max(syncedAt, ru); setStamp('syncedAt', syncedAt);
+    if (definitive || sync.status === 'connecting') setSync('synced');
+    return;
+  }
+  if (ru >= localUpdatedAt || !hasData(S)) adoptRemote(remote, ru, body.device, first);
+  else if (definitive) pushNow();                       // this device has the newer change
+}
+
+function adoptRemote(remote, ru, device, quiet) {
+  if (dlg.open || alertDlg.open) { sync.pending = { remote, ru, device }; return; }
+  if (hasData(S) && localUpdatedAt > syncedAt) snapshot('Before sync', S);
+  applyingRemote = true;
+  S = remote;
+  localUpdatedAt = ru; syncedAt = ru;
+  setStamp('updatedAt', ru); setStamp('syncedAt', ru);
+  render();
+  applyingRemote = false;
+  setSync('synced');
+  if (!quiet && device !== DEVICE) toast('Updated from your other device');
+}
+
+function scheduleCloudPush() {
+  if (!sync.ref) return;
+  clearTimeout(sync.pushTimer);
+  if (sync.status !== 'saving') setSync('saving');
+  sync.pushTimer = setTimeout(pushNow, 700);           // one write per pause in editing
+}
+
+async function pushNow() {
+  if (!sync.ref) return;
+  clearTimeout(sync.pushTimer);
+  if (sync.writing) { sync.again = true; return; }
+  sync.writing = true;
+  setSync('saving');
+  if (localUpdatedAt < 10) { localUpdatedAt = Date.now(); setStamp('updatedAt', localUpdatedAt); }
+  const stamp = localUpdatedAt;
+  const body = { v: 1, updatedAt: stamp, device: DEVICE, state: JSON.parse(JSON.stringify(S)) };
+  try {
+    try { await sync.ref.set(body); }
+    catch (e) {
+      if (!e || e.code !== 'unavailable') throw e;
+      await new Promise(r => setTimeout(r, 600 + Math.random() * 900));
+      await sync.ref.set(body);
+    }
+    syncedAt = Math.max(syncedAt, stamp); setStamp('syncedAt', syncedAt);
+    setSync('synced');
+  } catch (e) {
+    const code = e && e.code;
+    if (code === 'quota_exceeded' || code === 'invalid_argument') setSync('error', 'Your data couldn’t be synced because it is too large. It is still saved on this device; deleting old check-ins may help.');
+    else if (code === 'revoked') { sync.ref = null; setSync('local'); }
+    else setSync('offline');
+  } finally {
+    sync.writing = false;
+    if (sync.again) { sync.again = false; pushNow(); }
+  }
+}
+
+/* Retry unsynced changes when the connection or the page comes back. */
+function retryPush() { if (sync.ref && localUpdatedAt > syncedAt && !sync.writing) pushNow(); }
+window.addEventListener('online', retryPush);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) retryPush(); });
+/* A copy that arrived while a sheet was open is applied once it closes,
+   unless the sheet saved a newer change, which then syncs instead. */
+const applyPending = () => {
+  if (!sync.pending || dlg.open || alertDlg.open) return;
+  const p = sync.pending; sync.pending = null;
+  if (p.ru >= localUpdatedAt) adoptRemote(p.remote, p.ru, p.device, false); else retryPush();
+};
+dlg.addEventListener('close', () => setTimeout(applyPending, 0));
+alertDlg.addEventListener('close', () => setTimeout(applyPending, 0));
+
+const SYNC_TEXT = {
+  local:      ['lock', 'var(--label-3)', 'On this device only'],
+  signedout:  ['cloudoff', 'var(--orange)', 'Sign in to sync'],
+  connecting: ['cloud', 'var(--label-3)', 'Connecting…'],
+  saving:     ['cloud', 'var(--label-2)', 'Syncing…'],
+  synced:     ['cloudcheck', 'var(--green)', 'Synced'],
+  offline:    ['cloudoff', 'var(--orange)', 'Offline · saved here'],
+  error:      ['cloudoff', 'var(--red)', 'Sync paused']
+};
+function renderSyncStatus() {
+  const [icon, color, text] = SYNC_TEXT[sync.status] || SYNC_TEXT.local;
+  const note = document.getElementById('syncNote');
+  if (note) note.innerHTML = `<span style="color:${color};display:inline-flex">${ic(icon)}</span><span>${esc(text)}</span>`;
+  const chip = document.getElementById('syncChip');
+  if (chip) { chip.innerHTML = sync.status === 'local' ? '' : `<span class="dot" style="background:${color}"></span>${esc(text)}`; chip.hidden = sync.status === 'local'; }
+  const row = document.getElementById('syncValue');
+  if (row) row.innerHTML = `<span style="color:${color}">${esc(text)}</span>`;
 }
 
 /* =====================================================================
@@ -1109,16 +1337,17 @@ document.addEventListener('click', e => {
     case 'goal': S.settings.targetMonths = Math.max(1, Math.min(60, S.settings.targetMonths + (+el.dataset.d || 0))); render(); break;
     case 'billfilter': ui.billFilter = el.dataset.f; render(); break;
     case 'range': ui.range = +el.dataset.m; render(); break;
-    case 'sample':
-      if (hasData(S) && !confirm('Replace your current data with sample data? A snapshot of your data is saved first.')) return;
+    case 'sample': (async () => {
+      const had = hasData(S);
+      if (had && !await askConfirm({ title: 'Load Sample Data?', message: 'This replaces your data on every synced device. A snapshot of your data is saved on this device first.', ok: 'Replace', destructive: true })) return;
       snapshot('Before sample data', S);
-      commit(hasData(S) ? 'Sample data loaded.' : '', () => { S = sampleState(); ui.view = 'overview'; });
-      break;
-    case 'reset':
-      if (!confirm('Erase all accounts, bills, income and history? A snapshot is saved first, so you can restore it from Settings.')) return;
+      commit(had ? 'Sample data loaded' : '', () => { S = sampleState(); ui.view = 'overview'; });
+    })(); break;
+    case 'reset': (async () => {
+      if (!await askConfirm({ title: 'Erase All Data?', message: 'Accounts, bills, income and history will be erased on every synced device. A snapshot is saved on this device first.', ok: 'Erase', destructive: true })) return;
       snapshot('Before erase', S);
-      commit('All data erased.', () => { S = C.blank(); ui.view = 'overview'; });
-      break;
+      commit('All data erased', () => { S = C.blank(); ui.view = 'overview'; });
+    })(); break;
     case 'export': exportBackup(); break;
     case 'import': document.getElementById('importFile').click(); break;
     case 'restore': restoreSnapshot(readSnapshots().find(s => String(s.ts) === el.dataset.ts)); break;
@@ -1151,6 +1380,9 @@ window.addEventListener('storage', e => {
   if (e.key !== KEY || e.newValue == null) return;
   try {
     S = C.normalizeState(JSON.parse(e.newValue)).state;
+    lastPersistedJSON = JSON.stringify(S);
+    localUpdatedAt = finite(Number(ls.get(KEY + '.updatedAt')), localUpdatedAt);
+    syncedAt = finite(Number(ls.get(KEY + '.syncedAt')), syncedAt);
     if (dlg.open) dlg.close();
     model = hasData(S) ? computeModel() : null; renderShell(); renderView(); renderBanners();
     toast('Updated with changes from another tab.');
@@ -1169,4 +1401,5 @@ window.addEventListener('unhandledrejection', ev => { console.error(ev.reason); 
 
 snapshot('Daily auto-save', S, { daily: true });
 render();
+startSync();
 })();

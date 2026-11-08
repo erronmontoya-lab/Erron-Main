@@ -23,3 +23,5 @@ jobs:
         run: npm install --no-save playwright@1.48.2 && npx playwright install --with-deps chromium
       - name: Browser tests (storage failures, import, undo, multi-tab)
         run: npm run test:e2e
+      - name: Sync tests (multi-device, offline, conflicts)
+        run: npm run test:sync

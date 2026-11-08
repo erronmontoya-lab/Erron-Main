@@ -2,11 +2,16 @@
 
 A personal finance tracker for when you're between jobs. It shows your bills, the money still coming in, and your **runway**: how long your cash lasts.
 
-## Run it
+## Open it
 
-Open `runway/index.html` in any browser. There's nothing to install and no server. Keep `index.html`, `core.js` and `app.js` in the same folder. All data stays in that browser's local storage.
+**On any device:** open the private claude.ai page at https://claude.ai/artifact/WAduFqicBoRPJeEwuvM7ci while signed in to claude.ai. Only you can open it.
 
-Click **Explore with sample data** to try it out, then **Settings → Erase all data** when you're ready to enter your own numbers.
+- **Sync:** your data is stored privately under your Claude account and syncs to every device where you open the page. Nobody else who has the link can see your data.
+- **Home screen:** on iPhone or iPad, open the page in Safari, tap Share, then Add to Home Screen. On Android, use Chrome's menu, then Add to Home screen.
+- **Status:** the sidebar (and the date line at the top) shows Synced, Syncing…, or Offline · saved here. Changes made offline sync when the connection returns.
+- **Conflicts:** the most recent change wins. If this device had unsynced changes when a newer copy arrived, they are kept as a snapshot you can restore from Settings.
+
+**As a local file:** open `runway/index.html` in a browser, with `core.js` and `app.js` in the same folder. Data then stays in that browser only.
 
 ## What it does
 
@@ -38,3 +43,5 @@ Data lives only in the browser you use, so the app protects it in layers:
 - `app.js`: the interface, storage and backups.
 - `npm test` runs the unit tests in `test/core.test.js`: date edge cases (month ends, leap years, daylight saving), runway math, data repair.
 - `npm run test:e2e` runs the browser tests in `test/e2e.js`. These need Playwright and Chromium.
+- `npm run test:sync` runs the sync tests in `test/sync.js`: several simulated devices share a stand-in for claude.ai's storage.
+- `python3 tools/build-artifact.py` builds `dist/index.html`, the version published to claude.ai (it carries no doctype or `<head>`, because claude.ai adds its own). Publish it with `core.js` and `app.js` alongside.

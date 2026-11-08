@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#000000">
-<title>Runway</title>
+<title>Runway Tracker</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2340a0ff'/%3E%3Cstop offset='1' stop-color='%235e5ce6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M8 22c4-1 7-4 9-8s4-6 7-6' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
 /* ===================================================================
@@ -381,6 +381,27 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); backdrop-filter: blur(4px); }
 .frow.stacked input { text-align: left; height: 34px; color: var(--label); }
 .frow.stacked > span { font-size: 12px; color: var(--label-2); font-weight: 500; }
 
+/* sync status */
+.side-note svg.i { width: 15px; height: 15px; stroke-width: 2; }
+.sync-chip { display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; text-transform: none; letter-spacing: -0.006em; font-weight: 500; color: var(--label-3); }
+.sync-chip .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* alert (Apple-style) */
+dialog.alert { width: 280px; max-width: calc(100vw - 48px); padding: 0; border-radius: 14px; background: rgba(44, 44, 46, .92); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); text-align: center; overflow: hidden; }
+dialog.alert[open] { animation: alertIn .3s var(--spring); }
+@keyframes alertIn { from { opacity: 0; transform: scale(1.12); } to { opacity: 1; transform: none; } }
+.alert-box { padding: 20px 16px 18px; }
+.alert-box h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.022em; }
+.alert-box p { font-size: 13px; color: var(--label); margin-top: 4px; line-height: 1.38; white-space: pre-line; }
+.alert-btns { display: grid; border-top: .5px solid rgba(84, 84, 88, .65); }
+.alert-btns.two { grid-template-columns: 1fr 1fr; }
+.alert-btns button { all: unset; cursor: pointer; height: 44px; font-size: 17px; color: var(--blue); text-align: center; }
+.alert-btns.two button + button { border-left: .5px solid rgba(84, 84, 88, .65); }
+.alert-btns button:hover { background: rgba(255, 255, 255, .05); }
+.alert-btns button:focus-visible { background: rgba(255, 255, 255, .1); }
+.alert-btns button.strong { font-weight: 600; }
+.alert-btns button.destructive { color: var(--red); font-weight: 600; }
+
 /* toast (HUD) */
 .toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 60; max-width: calc(100vw - 32px);
@@ -457,14 +478,14 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); backdrop-filter: blur(4px); }
     <nav class="nav" id="nav" aria-label="Sections"></nav>
     <div class="side-foot">
       <div id="sideStatus"></div>
-      <div class="side-note"><svg class="i" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Stored privately on this device</div>
+      <div class="side-note" id="syncNote" role="status" aria-live="polite"></div>
     </div>
   </aside>
 
   <div class="main">
     <header class="header">
       <div>
-        <div class="date" id="pageSub"></div>
+        <div class="date"><span id="pageSub"></span><span id="syncChip" class="sync-chip" hidden></span></div>
         <h1 id="pageTitle">Summary</h1>
       </div>
       <div class="actions" id="topActions"></div>
@@ -474,11 +495,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); backdrop-filter: blur(4px); }
       <div id="banners" class="banners" hidden></div>
       <main id="app"><noscript><div class="card pad">Runway needs JavaScript turned on.</div></noscript></main>
     </div>
-    <footer class="foot">Your data never leaves this device. A snapshot is saved every day; export a backup to keep a copy elsewhere.</footer>
+    <footer class="foot">Private to you. A snapshot is saved on this device every day, and you can export a backup any time.</footer>
   </div>
 </div>
 
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<dialog id="alertDlg" class="alert" role="alertdialog" aria-modal="true"></dialog>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <script src="core.js"></script>
 <script src="app.js"></script>
