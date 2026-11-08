@@ -197,8 +197,7 @@ async function run(name, fn) {
     }
     await p.click('[data-tab=bills]');
     await p.click('[data-action=billfilter][data-f=extras]');
-    assert.ok(await p.locator('tbody tr').count() > 0);
-    await p.click('[data-action=theme]');
+    assert.ok(await p.locator('.list-row[data-kind=bill]').count() > 0);
     assert.deepEqual(errors, []);
     await ctx.close();
   });

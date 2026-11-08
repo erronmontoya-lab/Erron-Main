@@ -10,7 +10,7 @@ Click **Explore with sample data** to try it out, then **Settings → Erase all 
 
 ## What it does
 
-The app has a sidebar with six pages: **Overview** (runway, key numbers, what needs attention, the projection chart, the next 30 days, your runway goal), **Bills & expenses**, **Income**, **Accounts**, **History** and **Settings**. It follows your system's light or dark mode, and the moon/sun button switches it.
+The app is dark-only, designed in the style of Apple's own apps, with the system font (San Francisco on Apple devices) and Apple's dark color palette. A sidebar holds six pages: **Summary** (runway with a progress ring toward your goal, key numbers, what needs attention, the projection chart, the next 30 days, your goal and spending by category), **Bills**, **Income**, **Accounts** (shown as Wallet-style cards), **History** and **Settings**. On a phone the sidebar becomes a bottom tab bar, and add/edit forms open as sheets.
 
 
 - **Runway**: projects your balance day by day from your actual bill due dates and income dates, and tells you when cash drops below your safety cushion.

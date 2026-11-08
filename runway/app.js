@@ -17,7 +17,6 @@ const today = () => C.startOfDay(new Date());
 const KEY = 'runway-tracker.v1';
 const SNAP_KEY = KEY + '.snapshots';
 const UI_KEY = KEY + '.ui';
-const THEME_KEY = KEY + '.theme';
 const MAX_SNAPSHOTS = 20;
 const MAX_AUTO_SNAPSHOTS = 14;
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -142,76 +141,99 @@ const isActive = i => C.isActive(i, today());
 const listFor = kind => (kind === 'bill' ? S.bills : kind === 'income' ? S.income : S.accounts);
 
 /* =====================================================================
- * Icons (Lucide-style, 24px grid, stroke)
+ * Icons (24px grid, stroke) and category styling
  * ===================================================================== */
 const ICON_PATHS = {
-  overview: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  overview: '<rect width="7" height="9" x="3" y="3" rx="1.5"/><rect width="7" height="5" x="14" y="3" rx="1.5"/><rect width="7" height="9" x="14" y="12" rx="1.5"/><rect width="7" height="5" x="3" y="16" rx="1.5"/>',
   bills: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
   income: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
   down: '<polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/>',
-  accounts: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  accounts: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
-  settings: '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
-  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
-  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
-  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  minus: '<path d="M5 12h14"/>',
+  download: '<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  upload: '<path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M5 21h14"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-  checkin: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
-  edit: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  checkin: '<path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  edit: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
   skip: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
-  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-  pie: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
   calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
   shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+  dollar: '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  house: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  bolt: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+  cart: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+  car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+  phone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  tv: '<rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>',
+  smile: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5"/>',
   bank: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
-  eyeoff: '<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>'
+  archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>'
 };
 const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
+const tile = (icon, color, cls = '') => `<span class="tile ${cls}" style="background:var(--${color})">${ic(icon)}</span>`;
+
+const CAT_STYLE = {
+  'housing': ['house', 'blue'], 'utilities': ['bolt', 'yellow'], 'insurance': ['shield', 'indigo'],
+  'health': ['heart', 'pink'], 'food': ['cart', 'orange'], 'transportation': ['car', 'teal'],
+  'debt': ['accounts', 'red'], 'phone & internet': ['phone', 'green'], 'subscriptions': ['tv', 'purple'],
+  'childcare': ['smile', 'mint'], 'personal': ['user', 'pink'], 'other': ['tag', 'gray']
+};
+const catTile = (category, cls = '') => { const [i, c] = CAT_STYLE[String(category).toLowerCase()] || ['tag', 'gray']; return tile(i, c, cls); };
 
 /* =====================================================================
- * Toasts with undo
+ * Toast (HUD) with undo
  * ===================================================================== */
 const toastEl = document.getElementById('toast');
 let toastTimer;
 function toast(msg, undoFn) {
   clearTimeout(toastTimer);
+  toastEl.hidden = true;
+  void toastEl.offsetWidth;   // restart the entrance animation
   toastEl.innerHTML = `${ic('check')}<span>${esc(msg)}</span>${undoFn ? '<button type="button" data-undo>Undo</button>' : ''}`;
   toastEl.hidden = false;
   const btn = toastEl.querySelector('[data-undo]');
   if (btn) btn.onclick = () => { toastEl.hidden = true; undoFn(); };
-  toastTimer = setTimeout(() => { toastEl.hidden = true; }, undoFn ? 10000 : 4000);
+  toastTimer = setTimeout(() => { toastEl.hidden = true; }, undoFn ? 10000 : 3500);
 }
 /** Run a change; offer to undo it. `fn` returning false cancels. */
 function commit(label, fn) {
   const before = JSON.stringify(S);
   if (fn() === false) return false;
   render();
-  if (label) toast(label, () => { S = C.normalizeState(JSON.parse(before)).state; render(); toast('Undone.'); });
+  if (label) toast(label, () => { S = C.normalizeState(JSON.parse(before)).state; render(); toast('Undone'); });
   return true;
 }
 
 /* =====================================================================
- * Render: shell (nav, top bar) + current view
+ * Render: shell + current view
  * ===================================================================== */
 const VIEWS = {
-  overview: { title: 'Overview', icon: 'overview' },
-  bills:    { title: 'Bills & expenses', icon: 'bills' },
-  income:   { title: 'Income', icon: 'income' },
-  accounts: { title: 'Accounts', icon: 'accounts' },
-  history:  { title: 'History', icon: 'history' },
-  settings: { title: 'Settings', icon: 'settings' }
+  overview: { title: 'Summary', short: 'Summary', icon: 'overview' },
+  bills:    { title: 'Bills', short: 'Bills', icon: 'bills' },
+  income:   { title: 'Income', short: 'Income', icon: 'income' },
+  accounts: { title: 'Accounts', short: 'Wallet', icon: 'accounts' },
+  history:  { title: 'History', short: 'History', icon: 'history' },
+  settings: { title: 'Settings', short: 'Settings', icon: 'settings' }
 };
 let renderedDay = '';
 let lastView = '';
-let model = null;   // cached projections for the current render
+let model = null;
 
 function computeModel() {
   const t0 = today();
@@ -236,59 +258,43 @@ function render() {
     renderView();
   } catch (err) {
     console.error(err);
-    app.innerHTML = `<section class="card welcome">
-      <h2>Something went wrong showing your data</h2>
-      <p>Your data is still saved. Export a backup, then try restoring a snapshot or reloading the page.</p>
-      <p class="tiny" style="margin-top:10px">${esc(err && err.message)}</p>
-      <div class="actions" style="margin-top:20px">
-        <button class="btn primary" data-action="export">${ic('download')}Export backup</button>
-        <button class="btn" data-action="restore-latest">Restore latest snapshot</button>
+    app.innerHTML = `<div class="welcome">
+      <span class="tile" style="background:var(--red);width:64px;height:64px;border-radius:16px;margin:0 auto 20px">${ic('alert')}</span>
+      <h2>Something Went Wrong</h2>
+      <p class="l2" style="margin-top:10px">Your data is still saved. Export a backup, then restore a snapshot or reload.</p>
+      <p class="l3" style="margin-top:8px;font-size:13px">${esc(err && err.message)}</p>
+      <div class="more" style="margin-top:24px">
+        <button class="btn primary" data-action="export">Export Backup</button>
+        <button class="btn" data-action="restore-latest">Restore Snapshot</button>
         <button class="btn" data-action="reload">Reload</button>
-      </div></section>`;
+      </div></div>`;
   }
-}
-
-function themeIsDark() {
-  const r = document.documentElement;
-  return r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 function renderShell() {
   const counts = { bills: S.bills.length, income: S.income.length, accounts: S.accounts.length };
   document.getElementById('nav').innerHTML = Object.entries(VIEWS).map(([k, v]) =>
-    `<button data-action="tab" data-tab="${k}" ${ui.view === k ? 'aria-current="page"' : ''}>${ic(v.icon)}<span>${v.title}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
+    `<button data-action="tab" data-tab="${k}" ${ui.view === k ? 'aria-current="page"' : ''} aria-label="${v.title}">${ic(v.icon)}<span class="long">${v.title}</span><span class="short">${v.short}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
 
   const side = document.getElementById('sideStatus');
   if (model) {
-    const r = runwayText(model.all), st = statusOf(model.all), pct = goalPct(model.all);
-    side.innerHTML = `<div class="mini"><div class="tiny"><span class="badge-dot" style="width:7px;height:7px;border-radius:50%;background:var(--${st.cls})"></span>Runway · ${st.label}</div>
-      <div class="v">${r.big} <small>${r.unit}</small></div>
-      <div class="meter"><i style="width:${pct}%;background:var(--${st.cls})"></i></div></div>`;
+    const r = runwayText(model.all), st = statusOf(model.all);
+    side.innerHTML = `<div class="side-widget">${ringSVG(goalPct(model.all), st.color, 40, 5)}<div><div class="k">Runway</div><div class="v">${r.big} <small>${r.unit === 'months' ? 'mo' : r.unit}</small></div></div></div>`;
   } else side.innerHTML = '';
 
   document.getElementById('pageTitle').textContent = VIEWS[ui.view].title;
-  const now = new Date();
-  const subs = {
-    overview: model ? `${now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}` : 'Set up your runway in a few minutes',
-    bills: 'Everything you pay, and when it\'s due',
-    income: 'Money still coming in while you\'re between jobs',
-    accounts: 'Cash you can actually spend',
-    history: 'Check-ins and everything you\'ve marked paid or received',
-    settings: 'Projection, backups and data'
-  };
-  document.getElementById('pageSub').textContent = subs[ui.view];
+  document.getElementById('pageSub').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
-  const theme = `<button class="btn icon ghost" data-action="theme" aria-label="Switch to ${themeIsDark() ? 'light' : 'dark'} theme" title="Toggle theme">${ic(themeIsDark() ? 'sun' : 'moon')}</button>`;
-  const exportBtn = `<button class="btn has-lbl" data-action="export" title="Export backup">${ic('download')}<span class="lbl">Export</span></button>`;
-  const checkin = `<button class="btn primary has-lbl" data-action="checkin" title="Log a balance check-in">${ic('checkin')}<span class="lbl">Check in</span></button>`;
+  const exportBtn = `<button class="btn round" data-action="export" aria-label="Export backup" title="Export Backup">${ic('download')}</button>`;
+  const checkin = `<button class="btn primary has-lbl" data-action="checkin" title="Check In">${ic('checkin')}<span class="lbl">Check In</span></button>`;
   const add = (kind, label) => `<button class="btn primary" data-action="add" data-kind="${kind}">${ic('plus')}${label}</button>`;
   const acts = {
-    overview: model ? [theme, exportBtn, checkin] : [theme],
-    bills: [theme, add('bill', 'Add bill')],
-    income: [theme, add('income', 'Add income')],
-    accounts: [theme, `<button class="btn has-lbl" data-action="checkin">${ic('checkin')}<span class="lbl">Check in</span></button>`, add('account', 'Add account')],
-    history: [theme, checkin],
-    settings: [theme, exportBtn]
+    overview: model ? [exportBtn, checkin] : [],
+    bills: [add('bill', 'Add Bill')],
+    income: [add('income', 'Add Income')],
+    accounts: [`<button class="btn has-lbl" data-action="checkin" title="Check In">${ic('checkin')}<span class="lbl">Check In</span></button>`, add('account', 'Add')],
+    history: [checkin],
+    settings: [exportBtn]
   };
   document.getElementById('topActions').innerHTML = acts[ui.view].join('');
 }
@@ -296,9 +302,9 @@ function renderShell() {
 function renderBanners() {
   const el = document.getElementById('banners');
   const items = [];
-  if (!storage.ok) items.push(['critical', `<b>Changes are not being saved.</b> ${esc(storage.msg)} Export a backup now so you don't lose your work.`, `<button class="btn sm" data-action="export">${ic('download')}Export backup</button>`]);
-  loadNotices.forEach((n, i) => items.push([n[0], n[1], `<button class="btn sm ghost" data-action="dismiss-notice" data-i="${i}">Dismiss</button>`]));
-  el.innerHTML = items.map(([c, h, btn]) => `<div class="banner ${c}">${ic('alert')}<div class="txt">${h}</div>${btn || ''}</div>`).join('');
+  if (!storage.ok) items.push(['red', `<b>Changes are not being saved.</b> ${esc(storage.msg)} Export a backup now so you don't lose your work.`, `<button class="btn sm tinted" data-action="export">Export</button>`]);
+  loadNotices.forEach((n, i) => items.push([n[0] === 'critical' ? 'red' : 'orange', n[1], `<button class="btn sm" data-action="dismiss-notice" data-i="${i}">Dismiss</button>`]));
+  el.innerHTML = items.map(([c, h, btn]) => `<div class="group"><div class="list-row has-tile">${tile('alert', c)}<div class="body" style="white-space:normal;font-size:14px">${h}</div>${btn}</div></div>`).join('');
   el.hidden = !items.length;
 }
 
@@ -320,102 +326,109 @@ function runwayText(sim) {
   return { big: m < 1 ? String(sim.out) : m.toFixed(1), unit: m < 1 ? (sim.out === 1 ? 'day' : 'days') : 'months', date: addDays(today(), sim.out), now: false };
 }
 function statusOf(sim) {
-  if (sim.out < 0 || sim.out > 12 * MONTH) return { label: 'Comfortable', cls: 'good' };
-  if (sim.out > 6 * MONTH) return { label: 'Watch closely', cls: 'warning' };
-  if (sim.out > 3 * MONTH) return { label: 'Tight', cls: 'serious' };
-  return { label: 'Urgent', cls: 'critical' };
+  if (sim.out < 0 || sim.out > 12 * MONTH) return { label: 'Comfortable', color: 'var(--green)' };
+  if (sim.out > 6 * MONTH) return { label: 'Watch Closely', color: 'var(--yellow)' };
+  if (sim.out > 3 * MONTH) return { label: 'Tight', color: 'var(--orange)' };
+  return { label: 'Urgent', color: 'var(--red)' };
 }
 function goalPct(sim) {
-  const goalDays = S.settings.targetMonths * MONTH;
   const have = sim.out < 0 ? Infinity : sim.out;
-  return Math.max(2, Math.min(100, (have / goalDays) * 100));
+  return Math.max(1, Math.min(100, (have / (S.settings.targetMonths * MONTH)) * 100));
 }
-const badge = (cls, label) => `<span class="badge ${cls}"><span class="dot" style="background:var(--${cls === 'neutral' ? 'faint' : cls})"></span>${label}</span>`;
-const emptyHTML = (icon, title, text, btn = '') => `<div class="empty"><div class="ico-ring">${ic(icon)}</div><b>${title}</b>${text}${btn ? `<div>${btn}</div>` : ''}</div>`;
-const rowBtns = (kind, id) => `<div class="rowbtns">
-  <button class="btn icon sm ghost" data-action="edit" data-kind="${kind}" data-id="${esc(id)}" aria-label="Edit" title="Edit">${ic('edit')}</button>
-  <button class="btn icon sm ghost danger" data-action="del" data-kind="${kind}" data-id="${esc(id)}" aria-label="Delete" title="Delete">${ic('trash')}</button></div>`;
+/** Activity-style ring. */
+function ringSVG(pct, color, size, stroke) {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r, off = c * (1 - pct / 100);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg);flex:none" aria-hidden="true">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="${stroke}"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg>`;
+}
+const status = st => `<span class="status" style="color:${st.color}"><span class="dot" style="background:${st.color}"></span>${st.label}</span>`;
 const signed = n => `${n >= 0 ? '+' : '−'}${money(Math.abs(n))}`;
+const emptyHTML = (icon, color, title, text, btn = '') => `<div class="empty">${tile(icon, color)}<b>${title}</b>${text}${btn ? `<div>${btn}</div>` : ''}</div>`;
+const delBtn = (kind, id) => `<button class="btn round xs" data-action="del" data-kind="${kind}" data-id="${esc(id)}" aria-label="Delete" title="Delete" style="color:var(--label-2)">${ic('trash')}</button>`;
 
 /* =====================================================================
- * Overview
+ * Summary (overview)
  * ===================================================================== */
 function overviewHTML() {
   return `${heroHTML()}${attentionHTML()}${chartCardHTML()}
-    <div class="row-2">${upcomingHTML()}<div class="stack">${plannerHTML()}${categoriesHTML()}</div></div>`;
+    <div class="cols">${upcomingHTML()}<div class="stack">${plannerHTML()}${categoriesHTML()}</div></div>`;
 }
 
 function heroHTML() {
   const { all, ess, billsMo, essMo, incMo } = model;
   const r = runwayText(all), re = runwayText(ess), st = statusOf(all);
-  const net = incMo - billsMo, tm = S.settings.targetMonths;
+  const net = incMo - billsMo, tm = S.settings.targetMonths, pct = goalPct(all);
   const ck = S.checkins, last = ck[ck.length - 1], prev = ck[ck.length - 2];
   const cashDelta = last && prev ? last.total - prev.total : null;
   const activeInc = S.income.filter(i => isActive(i) && i.freq !== 'once').length;
   const counted = S.accounts.filter(a => a.include !== false).length;
-  const pct = goalPct(all);
-  const reached = all.out < 0 ? tm <= S.settings.horizon : all.out / MONTH >= tm;
+  const size = 156, stroke = 18, rr = (size - stroke) / 2, circ = 2 * Math.PI * rr;
   return `
   <section class="hero">
     <div class="card hero-main">
-      <div class="eyebrow"><span>Runway${S.settings.cushion ? ` · keeps ${money(S.settings.cushion)} cushion` : ''}</span>${badge(st.cls, st.label)}</div>
-      <div class="big">${r.big}<small>${r.unit}</small></div>
-      <div class="sub">${r.now ? '<b>Cash is already below your cushion.</b>' : r.date ? `Cash runs out around <b>${fmtDate(r.date, { month: 'long', day: 'numeric', year: 'numeric' })}</b>` : `Cash lasts beyond the ${S.settings.horizon}-month projection`}</div>
-      <div class="hero-meter">
-        <div class="lbls"><span>Goal: ${tm} months</span><span>${reached ? 'Goal met' : `${Math.round(pct)}% of goal`}</span></div>
-        <div class="meter"><i style="width:${pct}%;background:var(--${st.cls})"></i></div>
+      <div>
+        <div class="k">Runway ${status(st)}</div>
+        <div class="big">${r.big}<small>${r.unit}</small></div>
+        <div class="sub">${r.now ? '<b>Cash is already below your cushion.</b>' : r.date ? `Cash lasts until <b>${fmtDate(r.date, { month: 'long', day: 'numeric', year: 'numeric' })}</b>` : `Cash lasts beyond the ${S.settings.horizon}-month projection`}</div>
+        <div class="hero-meta">
+          <div><div class="mk">Essentials Only</div><div class="mv">${re.big} ${re.unit === 'months' ? 'mo' : re.unit}</div></div>
+          <div><div class="mk">Cushion</div><div class="mv">${money(S.settings.cushion)}</div></div>
+          <div><div class="mk">Last Check-In</div><div class="mv">${last ? safeDate(last.date, { month: 'short', day: 'numeric' }) : '—'}</div></div>
+        </div>
       </div>
-      <div class="hero-split">
-        <div><div class="k">Essentials only</div><div class="v">${re.big} ${re.unit}</div></div>
-        <div><div class="k">Last check-in</div><div class="v">${last ? safeDate(last.date, { month: 'short', day: 'numeric' }) : 'None yet'}</div></div>
+      <div class="ring" role="img" aria-label="${Math.round(pct)} percent of a ${tm}-month goal">
+        <svg viewBox="0 0 ${size} ${size}">
+          <circle cx="${size / 2}" cy="${size / 2}" r="${rr}" stroke="${st.color}" stroke-opacity=".2" stroke-width="${stroke}"/>
+          <circle class="prog" cx="${size / 2}" cy="${size / 2}" r="${rr}" stroke="${st.color}" stroke-width="${stroke}" stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${(circ * (1 - pct / 100)).toFixed(2)}"/>
+        </svg>
+        <div class="center"><div><div class="p">${Math.round(pct)}%</div><div class="c">of ${tm} mo goal</div></div></div>
       </div>
     </div>
     <div class="kpis">
-      ${kpi('Cash on hand', 'accounts', money(cashTotal()), cashDelta === null ? `${counted} account${counted === 1 ? '' : 's'} counted`
-        : `<span class="delta ${cashDelta >= 0 ? 'up' : 'down'}">${ic(cashDelta >= 0 ? 'income' : 'down')}${signed(cashDelta)}</span> since ${safeDate(prev.date, { month: 'short', day: 'numeric' })}`)}
-      ${kpi('Bills per month', 'bills', money(billsMo), `${money(essMo)} essential · ${money(billsMo - essMo)} extras`)}
-      ${kpi('Income per month', 'income', money(incMo), `${activeInc} active source${activeInc === 1 ? '' : 's'}`)}
-      ${kpi('Net per month', net >= 0 ? 'income' : 'down', `<span style="color:var(--${net >= 0 ? 'good' : 'critical'}-text)">${signed(net)}</span>`, net >= 0 ? 'Cash is growing' : 'Monthly burn rate')}
+      ${kpi('Cash on Hand', 'wallet', 'blue', money(cashTotal()), cashDelta === null ? `${counted} account${counted === 1 ? '' : 's'}` : `<span style="color:var(--${cashDelta >= 0 ? 'green' : 'red'})">${signed(cashDelta)}</span> since ${safeDate(prev.date, { month: 'short', day: 'numeric' })}`)}
+      ${kpi('Bills', 'bills', 'orange', money(billsMo), `${money(essMo)} essential per month`)}
+      ${kpi('Income', 'income', 'green', money(incMo), `${activeInc} active source${activeInc === 1 ? '' : 's'} per month`)}
+      ${kpi('Net', net >= 0 ? 'income' : 'down', net >= 0 ? 'green' : 'red', signed(net), net >= 0 ? 'Cash growing each month' : 'Burn per month')}
     </div>
   </section>`;
 }
-const kpi = (label, icon, val, note) => `<div class="card kpi"><div class="top"><span class="label">${label}</span><span class="chip-ico">${ic(icon)}</span></div><div class="val num">${val}</div><div class="note">${note}</div></div>`;
+const kpi = (label, icon, color, val, note) => `<div class="card kpi"><div class="kh" style="color:var(--${color})">${ic(icon)}${label}</div><div class="val num">${val}</div><div class="note">${note}</div></div>`;
 
 function attentionItems() {
   const t0 = today(), A = [];
   const overdue = S.bills.filter(b => parse(b.next) < t0);
-  if (overdue.length) A.push(['critical', 'alert', `<b>${overdue.length} overdue bill${overdue.length > 1 ? 's' : ''}</b> · ${overdue.map(b => esc(b.name)).join(', ')}`, '']);
+  if (overdue.length) A.push(['alert', 'red', `${overdue.length} Overdue Bill${overdue.length > 1 ? 's' : ''}`, overdue.map(b => b.name).join(', '), '']);
   const late = S.income.filter(i => parse(i.next) < t0);
-  if (late.length) A.push(['warning', 'clock', `<b>Confirm income</b> · ${late.map(i => esc(i.name)).join(', ')} ${late.length > 1 ? 'were' : 'was'} expected already. Mark received or skip so runway isn't overstated.`, '']);
-  if (model.all.out === 0) A.push(['critical', 'alert', '<b>Cash is below your safety cushion right now.</b>', '']);
-  else if (model.all.out > 0 && model.all.out <= 3 * MONTH) { const re = runwayText(model.ess); A.push(['critical', 'alert', `<b>Less than 3 months of runway.</b> Cutting to essentials gives you ${re.big} ${re.unit}.`, '']); }
+  if (late.length) A.push(['clock', 'orange', 'Confirm Income', `${late.map(i => i.name).join(', ')} — mark received or skip`, '']);
+  if (model.all.out === 0) A.push(['alert', 'red', 'Below Your Cushion', 'Cash is under your safety cushion right now', '']);
+  else if (model.all.out > 0 && model.all.out <= 3 * MONTH) { const re = runwayText(model.ess); A.push(['alert', 'red', 'Less Than 3 Months Left', `Essentials only gives you ${re.big} ${re.unit}`, '']); }
   for (const i of S.income) {
     if (!i.end) continue;
     const d = daysBetween(t0, parse(i.end));
-    if (d >= 0 && d <= 60) A.push(['warning', 'calendar', `<b>${esc(i.name)} ends ${safeDate(i.end, { month: 'short', day: 'numeric' })}</b> · in ${d} day${d === 1 ? '' : 's'}, dropping income by ${money(i.amount * FREQ[i.freq].perMonth)}/mo`, '']);
+    if (d >= 0 && d <= 60) A.push(['calendar', 'yellow', `${i.name} Ends in ${d} Day${d === 1 ? '' : 's'}`, `Income drops by ${money(i.amount * FREQ[i.freq].perMonth)} per month`, '']);
   }
   const lastCk = S.checkins[S.checkins.length - 1];
   if (S.accounts.length && (!lastCk || daysBetween(parse(lastCk.date), t0) > 10))
-    A.push(['info', 'checkin', `<b>Update your balances</b> · ${lastCk ? `last check-in was ${daysBetween(parse(lastCk.date), t0)} days ago` : 'no check-ins yet'}. Weekly keeps the runway honest.`, `<button class="btn xs" data-action="checkin">Check in</button>`]);
+    A.push(['checkin', 'blue', 'Update Your Balances', lastCk ? `Last check-in was ${daysBetween(parse(lastCk.date), t0)} days ago` : 'No check-ins yet', `<button class="btn xs tinted" data-action="checkin">Check In</button>`]);
   const le = S.settings.lastExport, since = le ? daysBetween(parse(le), t0) : null;
   if (since === null || since > 14)
-    A.push(['info', 'shield', `<b>Back up your data</b> · ${since === null ? "you haven't exported a backup yet" : `last backup was ${since} days ago`}. It only lives in this browser.`, `<button class="btn xs" data-action="export">Export</button>`]);
+    A.push(['shield', 'gray', 'Back Up Your Data', since === null ? 'No backup exported yet' : `Last backup was ${since} days ago`, `<button class="btn xs tinted" data-action="export">Export</button>`]);
   return A;
 }
 function attentionHTML() {
   const A = attentionItems();
-  if (!A.length) return `<section class="card"><div class="att good"><span class="ic">${ic('check')}</span><div class="txt"><b>All clear</b> · no overdue bills, nothing ending soon, and your backup is current.</div></div></section>`;
-  return `<section class="card" role="status">
-    <div class="card-head" style="padding-bottom:10px"><h2>Needs attention</h2><span class="badge neutral">${A.length}</span></div>
-    ${A.map(([c, i, t, btn]) => `<div class="att ${c}"><span class="ic">${ic(i)}</span><div class="txt">${t}</div>${btn}</div>`).join('')}
-  </section>`;
+  if (!A.length) return `<div class="group"><div class="list-row has-tile">${tile('check', 'green')}<div class="body"><div class="t">You're All Set</div><div class="s">No overdue bills, nothing ending soon, backup is current.</div></div></div></div>`;
+  return `<div role="status"><div class="sect"><span>Needs Attention</span></div><div class="group">
+    ${A.map(([i, c, t, s, btn]) => `<div class="list-row has-tile">${tile(i, c)}<div class="body"><div class="t">${esc(t)}</div><div class="s">${esc(s)}</div></div>${btn}</div>`).join('')}
+  </div></div>`;
 }
 
 function chartCardHTML() {
   const range = chartRange();
   return `<section class="card" aria-labelledby="chartTitle">
-    <div class="card-head">
-      <div><h2 id="chartTitle">Projected cash balance</h2><div class="sub">Day by day, from your bill and income dates</div></div>
+    <div class="card-title">
+      <div><h2 id="chartTitle">Projected Balance</h2><div class="foot13">Day by day, from your real bill and income dates</div></div>
       <div class="seg" role="group" aria-label="Chart range">
         ${[6, 12, 24, 36].filter(m => m <= S.settings.horizon).map(m => `<button data-action="range" data-m="${m}" aria-pressed="${range === m}">${m}M</button>`).join('')}
       </div>
@@ -424,7 +437,7 @@ function chartCardHTML() {
       <span><i style="background:var(--s1)"></i>All bills</span>
       <span><i style="background:var(--s2)"></i>Essentials only</span>
       ${S.checkins.length ? '<span><i class="dotkey" style="background:var(--s3)"></i>Actual balance</span>' : ''}
-      ${S.settings.cushion ? `<span><i class="dash"></i>Cushion ${money(S.settings.cushion)}</span>` : ''}
+      ${S.settings.cushion ? `<span><i class="dash"></i>Cushion</span>` : ''}
     </div>
     <div class="chart-box" id="chartBox"></div>
     ${monthTableHTML(model.all, model.ess, range)}
@@ -434,32 +447,43 @@ function chartCardHTML() {
 function upcomingHTML() {
   const t0 = today();
   const ev = C.upcoming(S, 30, t0);
-  const groups = [['Overdue', e => e.overdue], ['Next 7 days', e => !e.overdue && daysBetween(t0, e.date) < 7], ['Later this month', e => !e.overdue && daysBetween(t0, e.date) >= 7]];
+  const groups = [['Overdue', e => e.overdue], ['Next 7 Days', e => !e.overdue && daysBetween(t0, e.date) < 7], ['Later This Month', e => !e.overdue && daysBetween(t0, e.date) >= 7]];
   const row = e => {
     const isNext = parse(e.item.next).getTime() === e.date.getTime();
-    return `<div class="ev">
-      <div class="datechip ${e.overdue ? 'over' : ''}"><div class="m">${e.date.toLocaleDateString(undefined, { month: 'short' })}</div><div class="d">${e.date.getDate()}</div></div>
-      <div style="min-width:0">
-        <div class="name">${esc(e.item.name)}${e.overdue ? `<span class="pill over">${e.kind === 'bill' ? 'Overdue' : 'Confirm'}</span>` : ''}</div>
-        <div class="meta num">${FREQ[e.item.freq].label} · balance after ${money(e.after)}</div>
+    return `<div class="list-row has-tile">
+      <div class="cal ${e.overdue ? 'over' : ''}"><div class="m">${e.date.toLocaleDateString(undefined, { month: 'short' })}</div><div class="d">${e.date.getDate()}</div></div>
+      <div class="body">
+        <div class="t">${esc(e.item.name)}${e.overdue ? `<span class="tag red">${e.kind === 'bill' ? 'Overdue' : 'Confirm'}</span>` : ''}</div>
+        <div class="s num">Balance after ${money(e.after)}</div>
       </div>
-      <div class="right">
-        <div class="amt num ${e.amount > 0 ? 'in' : ''}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(e.amount), true)}</div>
-        ${isNext ? `<div class="acts">
-          <button class="btn xs" data-action="settle" data-kind="${e.kind}" data-id="${esc(e.item.id)}">${e.kind === 'bill' ? 'Paid' : 'Received'}</button>
-          <button class="btn icon xs ghost" data-action="skip" data-kind="${e.kind}" data-id="${esc(e.item.id)}" aria-label="Skip to next date" title="Skip to next date without changing balances">${ic('skip')}</button>
+      <div class="end">
+        <div class="amt ${e.amount > 0 ? 'in' : ''}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(e.amount), true)}</div>
+        ${isNext ? `<div class="tools">
+          <button class="btn xs tinted" data-action="settle" data-kind="${e.kind}" data-id="${esc(e.item.id)}">${e.kind === 'bill' ? 'Paid' : 'Received'}</button>
+          <button class="btn round xs" data-action="skip" data-kind="${e.kind}" data-id="${esc(e.item.id)}" aria-label="Skip to next date" title="Skip to next date" style="color:var(--label-2)">${ic('skip')}</button>
         </div>` : ''}
       </div>
     </div>`;
   };
   const out = ev.reduce((t, e) => t + (e.amount < 0 ? -e.amount : 0), 0);
   const inn = ev.reduce((t, e) => t + (e.amount > 0 ? e.amount : 0), 0);
-  return `<section class="card">
-    <div class="card-head"><div><h2>Next 30 days</h2><div class="sub num">${money(out)} out · <span class="in">${money(inn)} in</span></div></div><span class="badge neutral">${ev.length} item${ev.length === 1 ? '' : 's'}</span></div>
-    <div class="scroll">
-      ${ev.length ? groups.map(([label, f]) => { const g = ev.filter(f); return g.length ? `<div class="group-label"><span>${label}</span><span class="num">${g.length}</span></div>${g.map(row).join('')}` : ''; }).join('')
-        : emptyHTML('calendar', 'Nothing due', 'No bills or income in the next 30 days.')}
+  return `<section>
+    <div class="card pad" style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:16px">
+      <div><h2 style="font-size:17px;font-weight:600">Next 30 Days</h2><div class="foot13">${ev.length} item${ev.length === 1 ? '' : 's'}</div></div>
+      <div style="display:flex;gap:22px;text-align:right">
+        <div><div class="foot13">Out</div><div class="rounded num" style="font-size:20px;font-weight:700">${money(out)}</div></div>
+        <div><div class="foot13">In</div><div class="rounded num in" style="font-size:20px;font-weight:700">${money(inn)}</div></div>
+      </div>
     </div>
+    ${ev.length ? groups.map(([label, f]) => {
+        const g = ev.filter(f);
+        if (!g.length) return '';
+        const LIMIT = 6, cap = label === 'Later This Month' && g.length > LIMIT + 1;
+        const shown = cap && !ui.showAllUpcoming ? g.slice(0, LIMIT) : g;
+        const more = cap ? `<div class="list-row action-row" data-action="toggle-upcoming" role="button" tabindex="0">${ui.showAllUpcoming ? 'Show Less' : `Show All ${g.length}`}</div>` : '';
+        return `<div class="sect"><span>${label}</span><span>${g.length}</span></div><div class="group" style="margin-bottom:24px">${shown.map(row).join('')}${more}</div>`;
+      }).join('')
+      : `<div class="group">${emptyHTML('calendar', 'red', 'Nothing Due', 'No bills or income in the next 30 days.')}</div>`}
   </section>`;
 }
 
@@ -467,16 +491,17 @@ function plannerHTML() {
   const tm = S.settings.targetMonths, t0 = today();
   const gapAll = C.gapFor(S, tm, false, t0), gapEss = C.gapFor(S, tm, true, t0);
   let ans;
-  if (gapAll === Infinity) ans = `<div class="answer" style="color:var(--critical-text)">Below cushion</div><p>Your cash is already under your ${money(S.settings.cushion)} cushion, so no monthly amount fixes today. Lower the cushion in Settings, or add money to an account.</p>`;
-  else if (gapAll <= 0.5) ans = `<div class="answer" style="color:var(--good-text)">You're covered</div><p>Your cash lasts at least ${tm} months at current bills and income.</p>`;
-  else ans = `<div class="answer num">${money(Math.ceil(gapAll))}<small> /month</small></div>
-       <p>Extra income or cuts needed to stay above ${money(S.settings.cushion)} for ${tm} months.</p>
-       <p>${gapEss <= 0.5 ? `Or cut to <b>essentials only</b>: that alone gets you there.` : `On essentials only, you'd still need <b>${money(Math.ceil(gapEss))}/mo</b>.`}</p>`;
-  return `<section class="card card-pad planner">
-    <div style="display:flex;align-items:center;justify-content:space-between"><h2>Runway goal</h2><span class="chip-ico">${ic('target')}</span></div>
-    <label class="inline" for="targetMonths">Stay covered for <input type="number" id="targetMonths" min="1" max="60" step="1" value="${tm}" data-setting="targetMonths"> months</label>
+  if (gapAll === Infinity) ans = `<div class="answer" style="color:var(--red)">Below Cushion</div><p>Your cash is already under your ${money(S.settings.cushion)} cushion. Lower it in Settings, or add money to an account.</p>`;
+  else if (gapAll <= 0.5) ans = `<div class="answer" style="color:var(--green)">You're Covered</div><p>Your cash lasts at least ${tm} months at current bills and income.</p>`;
+  else ans = `<div class="answer num">${money(Math.ceil(gapAll))}<small> per month</small></div>
+       <p>Extra income or cuts to stay above ${money(S.settings.cushion)} for ${tm} months.</p>
+       <p>${gapEss <= 0.5 ? 'Or cut to <b>essentials only</b> — that alone gets you there.' : `On essentials only, you'd still need <b>${money(Math.ceil(gapEss))}</b> per month.`}</p>`;
+  return `<section class="card pad planner">
+    <div style="display:flex;align-items:center;gap:10px">${tile('target', 'red', 'sm')}<h2 style="font-size:17px;font-weight:600">Runway Goal</h2></div>
+    <div class="stepper-row"><span>Stay covered for <b class="rounded num">${tm}</b> months</span>
+      <span class="stepper"><button data-action="goal" data-d="-1" aria-label="Fewer months">${ic('minus')}</button><button data-action="goal" data-d="1" aria-label="More months">${ic('plus')}</button></span></div>
     ${ans}
-    <div class="callout">${ic('info')}<span>Plan for a 6–9 month search, plus about a month before the first paycheck lands.</span></div>
+    <div class="note-box">${ic('info')}<span>Plan for a 6–9 month search, plus about a month before the first paycheck lands.</span></div>
   </section>`;
 }
 
@@ -489,12 +514,13 @@ function categoriesHTML() {
   const rows = Object.entries(by).filter(r => r[1] > 0).sort((a, b) => b[1] - a[1]);
   if (!rows.length) return '';
   const max = rows[0][1], total = rows.reduce((t, r) => t + r[1], 0);
-  return `<section class="card card-pad">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div><h2>Where the money goes</h2><div class="sub num">${money(total)}/mo across ${rows.length} categories</div></div><span class="chip-ico">${ic('pie')}</span></div>
-    ${rows.map(([k, v]) => `<div class="bar" title="${esc(k)}: ${money(v)}/mo (${Math.round(v / total * 100)}%)">
-      <div class="lbl">${esc(k)}</div>
-      <div class="track"><div class="fill" style="width:${(v / max * 100).toFixed(1)}%"></div></div>
-      <div class="v num">${money(v)}</div>
+  return `<section class="card pad">
+    <h2 style="font-size:17px;font-weight:600">Spending by Category</h2>
+    <div class="foot13" style="margin-bottom:10px">${money(total)} per month</div>
+    ${rows.map(([k, v]) => `<div class="cat" title="${esc(k)}: ${money(v)}/mo (${Math.round(v / total * 100)}%)">
+      ${catTile(k, 'sm')}
+      <div><div class="bt"><span>${esc(k)}</span><span>${money(v)}</span></div><div class="track"><div class="fill" style="width:${(v / max * 100).toFixed(1)}%"></div></div></div>
+      <span></span>
     </div>`).join('')}
   </section>`;
 }
@@ -503,19 +529,21 @@ function monthTableHTML(all, ess, range) {
   const rows = [], t0 = today();
   for (let m = 1; m <= range; m++) {
     const d = Math.min(all.bal.length - 1, Math.round(m * MONTH));
-    rows.push(`<tr><td>${fmtDate(addDays(t0, d), { month: 'short', year: 'numeric' })}</td><td class="r num">${money(all.bal[d])}</td><td class="r num">${money(ess.bal[d])}</td></tr>`);
+    rows.push(`<div class="list-row"><div class="body">${fmtDate(addDays(t0, d), { month: 'long', year: 'numeric' })}</div><div class="end" style="flex-direction:row;gap:18px"><span class="num" style="color:var(--s1)">${money(all.bal[d])}</span><span class="num l2">${money(ess.bal[d])}</span></div></div>`);
   }
-  return `<details class="tableview"><summary>${ic('chevron')}View as table</summary><div class="tablewrap"><table><thead><tr><th>Month</th><th class="r">All bills</th><th class="r">Essentials only</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></details>`;
+  return `<details class="tableview"><summary>${ic('chevron')}Show Month by Month</summary><div class="group"><div class="list-row" style="min-height:36px"><div class="body foot13">Month</div><div class="end foot13" style="flex-direction:row;gap:18px"><span>All bills</span><span>Essentials</span></div></div>${rows.join('')}</div></details>`;
 }
 
 /* =====================================================================
- * Data views
+ * Lists
  * ===================================================================== */
 const stat = (k, v) => `<div><div class="k">${k}</div><div class="v num">${v}</div></div>`;
-const freqCell = i => `${FREQ[i.freq].label}${i.freq !== 'once' && i.freq !== 'monthly' ? `<div class="cell-sub num">${money(i.amount * FREQ[i.freq].perMonth)}/mo</div>` : ''}`;
-const nextCell = (i, kind) => {
-  const over = parse(i.next) < today();
-  return `<div class="cell-main" style="font-weight:500">${safeDate(i.next, { month: 'short', day: 'numeric' })}${over ? `<span class="pill over">${kind === 'income' ? 'Confirm' : 'Overdue'}</span>` : ''}</div>`;
+const dueText = (i, kind) => {
+  const d = parse(i.next), days = daysBetween(today(), d);
+  if (days < 0) return `<span class="tag red">${kind === 'income' ? 'Confirm' : 'Overdue'}</span>`;
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return safeDate(i.next, { month: 'short', day: 'numeric' });
 };
 
 function billsView() {
@@ -523,31 +551,28 @@ function billsView() {
   const total = monthly(active), ess = monthly(active, b => b.essential);
   const f = ui.billFilter;
   const rows = S.bills.filter(b => f === 'all' || (f === 'essential' ? b.essential : !b.essential)).sort((a, b) => a.next.localeCompare(b.next));
-  const nextDue = [...S.bills].sort((a, b) => a.next.localeCompare(b.next))[0];
   return `
-  <section class="card stats">
-    ${stat('Monthly total', money(total))}${stat('Essential', money(ess))}${stat('Extras', money(total - ess))}
-    ${stat('Next due', nextDue ? `${safeDate(nextDue.next, { month: 'short', day: 'numeric' })}<span class="tiny" style="font-weight:500;letter-spacing:0"> · ${esc(nextDue.name)}</span>` : '—')}
-  </section>
-  <section class="card">
+  <div class="card stats">${stat('Per Month', money(total))}${stat('Essential', money(ess))}${stat('Extras', money(total - ess))}${stat('Bills', S.bills.length)}</div>
+  <div>
     <div class="toolbar">
       <div class="seg" role="group" aria-label="Filter bills">
         ${[['all', 'All'], ['essential', 'Essential'], ['extras', 'Extras']].map(([k, l]) => `<button data-action="billfilter" data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join('')}
       </div>
-      <span class="tiny">${rows.length} of ${S.bills.length}</span>
     </div>
-    ${rows.length ? `<div class="tablewrap"><table>
-      <thead><tr><th>Name</th><th class="hide-sm">Category</th><th class="r">Amount</th><th>Frequency</th><th>Next due</th><th></th></tr></thead>
-      <tbody>${rows.map(b => `<tr>
-        <td><div class="cell-main">${esc(b.name)}${b.essential ? '<span class="pill ess">Essential</span>' : ''}</div>${b.end ? `<div class="cell-sub">Ends ${safeDate(b.end)}</div>` : ''}</td>
-        <td class="hide-sm"><span class="pill">${esc(b.category)}</span></td>
-        <td class="r num" style="font-weight:550">${money(b.amount, true)}</td>
-        <td>${freqCell(b)}</td>
-        <td>${nextCell(b, 'bill')}</td>
-        <td>${rowBtns('bill', b.id)}</td>
-      </tr>`).join('')}</tbody></table></div>`
-      : emptyHTML('bills', S.bills.length ? 'No matching bills' : 'No bills yet', S.bills.length ? 'Try a different filter.' : 'Add rent, insurance, phone, loans, groceries and gas.', S.bills.length ? '' : `<button class="btn primary" data-action="add" data-kind="bill">${ic('plus')}Add bill</button>`)}
-  </section>`;
+    <div class="group">
+    ${rows.length ? rows.map(b => `<div class="list-row has-tile" data-action="edit" data-kind="bill" data-id="${esc(b.id)}" role="button" tabindex="0" aria-label="Edit ${esc(b.name)}">
+        ${catTile(b.category)}
+        <div class="body">
+          <div class="t">${esc(b.name)}${b.essential ? '' : '<span class="tag">Extra</span>'}</div>
+          <div class="s">${FREQ[b.freq].label} · ${esc(b.category)}${b.end ? ` · until ${safeDate(b.end, { month: 'short', year: 'numeric' })}` : ''}</div>
+        </div>
+        <div class="end"><div class="amt">${money(b.amount, true)}</div><div class="foot13">${dueText(b, 'bill')}</div></div>
+        <div class="tools">${delBtn('bill', b.id)}${ic('chevron', 'chev')}</div>
+      </div>`).join('')
+      : emptyHTML('bills', 'orange', S.bills.length ? 'No Matching Bills' : 'No Bills Yet', S.bills.length ? 'Try a different filter.' : 'Add rent, insurance, phone, loans, groceries and gas.', S.bills.length ? '' : `<button class="btn primary" data-action="add" data-kind="bill">${ic('plus')}Add Bill</button>`)}
+    </div>
+    <div class="sect-foot">Tap a bill to edit it. Mark bills as essential to see your bare-bones runway.</div>
+  </div>`;
 }
 
 function incomeView() {
@@ -557,120 +582,126 @@ function incomeView() {
   const ending = S.income.filter(i => i.end && daysBetween(t0, parse(i.end)) >= 0 && daysBetween(t0, parse(i.end)) <= 90).length;
   const rows = [...S.income].sort((a, b) => a.next.localeCompare(b.next));
   return `
-  <section class="card stats">
-    ${stat('Monthly income', money(model ? model.incMo : 0))}${stat('Expected next 90 days', money(next90))}${stat('Active sources', active.length)}${stat('Ending within 90 days', ending)}
-  </section>
-  <section class="card">
-    ${rows.length ? `<div class="tablewrap"><table>
-      <thead><tr><th>Source</th><th class="r">Amount</th><th>Frequency</th><th>Next payment</th><th class="hide-sm">Ends</th><th></th></tr></thead>
-      <tbody>${rows.map(i => `<tr>
-        <td><div class="cell-main">${esc(i.name)}${!isActive(i) ? '<span class="pill">Ended</span>' : ''}</div></td>
-        <td class="r num in" style="font-weight:550">+${money(i.amount, true)}</td>
-        <td>${freqCell(i)}</td>
-        <td>${nextCell(i, 'income')}</td>
-        <td class="hide-sm">${i.end ? `${safeDate(i.end)}<div class="cell-sub">${Math.max(0, daysBetween(t0, parse(i.end)))} days left</div>` : '<span class="muted">Ongoing</span>'}</td>
-        <td>${rowBtns('income', i.id)}</td>
-      </tr>`).join('')}</tbody></table></div>`
-      : emptyHTML('income', 'No income yet', 'Add unemployment benefits, severance, freelance work or a partner\'s contribution.', `<button class="btn primary" data-action="add" data-kind="income">${ic('plus')}Add income</button>`)}
-  </section>
-  <div class="callout">${ic('info')}<span>Benefits usually stop after a set number of weeks, so give them an end date. Use “One time” for severance or a tax refund.</span></div>`;
+  <div class="card stats">${stat('Per Month', money(model ? model.incMo : 0))}${stat('Next 90 Days', money(next90))}${stat('Active', active.length)}${stat('Ending Soon', ending)}</div>
+  <div>
+    <div class="group">
+    ${rows.length ? rows.map(i => `<div class="list-row has-tile" data-action="edit" data-kind="income" data-id="${esc(i.id)}" role="button" tabindex="0" aria-label="Edit ${esc(i.name)}">
+        ${tile(i.freq === 'once' ? 'sparkles' : 'briefcase', isActive(i) ? 'green' : 'gray')}
+        <div class="body">
+          <div class="t">${esc(i.name)}${!isActive(i) ? '<span class="tag">Ended</span>' : ''}</div>
+          <div class="s">${FREQ[i.freq].label}${i.end ? ` · ends ${safeDate(i.end, { month: 'short', day: 'numeric' })} (${Math.max(0, daysBetween(t0, parse(i.end)))} days)` : ' · ongoing'}</div>
+        </div>
+        <div class="end"><div class="amt in">+${money(i.amount, true)}</div><div class="foot13">${dueText(i, 'income')}</div></div>
+        <div class="tools">${delBtn('income', i.id)}${ic('chevron', 'chev')}</div>
+      </div>`).join('')
+      : emptyHTML('briefcase', 'green', 'No Income Yet', 'Add unemployment benefits, severance, freelance work or a partner\'s help.', `<button class="btn primary" data-action="add" data-kind="income">${ic('plus')}Add Income</button>`)}
+    </div>
+    <div class="sect-foot">Benefits usually stop after a set number of weeks — give them an end date. Use “One time” for severance or a tax refund.</div>
+  </div>`;
 }
 
 function accountsView() {
   const excluded = S.accounts.filter(a => a.include === false).reduce((t, a) => t + a.balance, 0);
-  const latest = S.accounts.map(a => a.updated).filter(Boolean).sort().pop();
+  let gi = 0;
   return `
-  <section class="card stats">
-    ${stat('Counted toward runway', money(cashTotal()))}${stat('Not counted', money(excluded))}${stat('Accounts', S.accounts.length)}${stat('Last updated', latest ? safeDate(latest, { month: 'short', day: 'numeric' }) : '—')}
-  </section>
-  <div class="accts">
-    ${S.accounts.map(a => `<div class="card acct ${a.include === false ? 'excluded' : ''}">
-      <div class="top"><span class="chip-ico">${ic(a.include === false ? 'eyeoff' : 'bank')}</span><div class="cell-main" style="min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.name)}</span></div>${rowBtns('account', a.id)}</div>
-      <div class="bal num">${money(a.balance, true)}</div>
-      <div class="foot"><span>${a.include === false ? 'Not counted' : 'Counts toward runway'}</span><span>${a.updated ? 'Updated ' + safeDate(a.updated, { month: 'short', day: 'numeric' }) : ''}</span></div>
-    </div>`).join('')}
-    <button class="acct-add" data-action="add" data-kind="account">${ic('plus')}Add account</button>
+  <div class="card stats">${stat('Counted', money(cashTotal()))}${stat('Not Counted', money(excluded))}${stat('Accounts', S.accounts.length)}${stat('Updated', (() => { const l = S.accounts.map(a => a.updated).filter(Boolean).sort().pop(); return l ? safeDate(l, { month: 'short', day: 'numeric' }) : '—'; })())}</div>
+  <div class="wallet">
+    ${S.accounts.map(a => {
+      const cls = a.include === false ? 'off' : 'g' + (gi++ % 4);
+      return `<div class="wcard ${cls}">
+        <div class="wt"><div><div class="wn">${esc(a.name)}</div><div class="ws">${a.include === false ? 'Not counted toward runway' : 'Counts toward runway'}</div></div>
+          <div class="wtools"><button class="btn round xs" data-action="edit" data-kind="account" data-id="${esc(a.id)}" aria-label="Edit" title="Edit">${ic('edit')}</button><button class="btn round xs" data-action="del" data-kind="account" data-id="${esc(a.id)}" aria-label="Delete" title="Delete">${ic('trash')}</button></div></div>
+        <div>
+          <div class="wb num">${money(a.balance, true)}</div>
+          <div class="wf"><span>${a.updated ? 'Updated ' + safeDate(a.updated, { month: 'short', day: 'numeric' }) : ''}</span>${ic(a.include === false ? 'archive' : 'bank')}</div>
+        </div>
+      </div>`;
+    }).join('')}
+    <button class="wadd" data-action="add" data-kind="account">${ic('plus')}Add Account</button>
   </div>
-  <div class="callout">${ic('info')}<span>Include cash you can actually spend: checking, savings, money market. Leave retirement accounts out unless you plan to tap them.</span></div>`;
+  <div class="sect-foot">Include cash you can actually spend. Leave retirement accounts out unless you plan to tap them.</div>`;
 }
 
 function historyView() {
   const ck = [...S.checkins].reverse();
   const act = [...S.activity].reverse().slice(0, 50);
-  return `<div class="row-2">
-    <section class="card">
-      <div class="card-head" style="padding-bottom:12px"><div><h2>Balance check-ins</h2><div class="sub">Your real total cash over time</div></div></div>
-      ${ck.length ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th class="r">Total cash</th><th class="r">Change</th><th></th></tr></thead><tbody>
-        ${ck.map((c, idx) => { const prev = ck[idx + 1], ch = prev ? c.total - prev.total : null;
-          return `<tr><td>${safeDate(c.date)}</td><td class="r num" style="font-weight:550">${money(c.total)}</td>
-          <td class="r num">${ch == null ? '<span class="muted">—</span>' : `<span class="delta ${ch >= 0 ? 'up' : 'down'}">${signed(ch)}</span>`}</td>
-          <td><div class="rowbtns"><button class="btn icon sm ghost danger" data-action="delck" data-date="${esc(c.date)}" aria-label="Delete check-in" title="Delete">${ic('trash')}</button></div></td></tr>`; }).join('')}
-      </tbody></table></div>` : emptyHTML('checkin', 'No check-ins yet', 'Log your balances weekly to compare reality with the plan.', `<button class="btn primary" data-action="checkin">${ic('checkin')}Check in</button>`)}
-    </section>
-    <section class="card">
-      <div class="card-head" style="padding-bottom:12px"><div><h2>Recent activity</h2><div class="sub">Bills paid and income received</div></div></div>
-      ${act.length ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Item</th><th class="r">Amount</th></tr></thead><tbody>
-        ${act.map(a => `<tr><td class="muted">${safeDate(a.date, { month: 'short', day: 'numeric' })}</td><td><div class="cell-main">${esc(a.name)}</div>${a.account ? `<div class="cell-sub">${esc(a.account)}</div>` : ''}</td>
-        <td class="r num ${a.amount > 0 ? 'in' : ''}" style="font-weight:550">${a.amount > 0 ? '+' : '−'}${money(Math.abs(a.amount), true)}</td></tr>`).join('')}
-      </tbody></table></div>` : emptyHTML('history', 'No activity yet', 'Mark bills paid and income received from the Overview.')}
-    </section>
+  return `<div class="cols">
+    <div>
+      <div class="sect"><span>Balance Check-Ins</span></div>
+      <div class="group">
+      ${ck.length ? ck.map((c, idx) => { const prev = ck[idx + 1], ch = prev ? c.total - prev.total : null;
+        return `<div class="list-row has-tile">${tile('checkin', 'blue', 'sm')}
+          <div class="body"><div class="t">${safeDate(c.date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>${ch == null ? '' : `<div class="s" style="color:var(--${ch >= 0 ? 'green' : 'red'})">${signed(ch)}</div>`}</div>
+          <div class="amt rounded" style="font-weight:600">${money(c.total)}</div>
+          <button class="btn round xs" data-action="delck" data-date="${esc(c.date)}" aria-label="Delete check-in" title="Delete" style="color:var(--label-2)">${ic('trash')}</button></div>`; }).join('')
+        : emptyHTML('checkin', 'blue', 'No Check-Ins Yet', 'Log your balances weekly to compare reality with the plan.', `<button class="btn primary" data-action="checkin">Check In</button>`)}
+      </div>
+    </div>
+    <div>
+      <div class="sect"><span>Recent Activity</span></div>
+      <div class="group">
+      ${act.length ? act.map(a => `<div class="list-row has-tile">${tile(a.amount > 0 ? 'income' : 'bills', a.amount > 0 ? 'green' : 'orange', 'sm')}
+          <div class="body"><div class="t">${esc(a.name)}</div><div class="s">${safeDate(a.date, { month: 'short', day: 'numeric' })}${a.account ? ' · ' + esc(a.account) : ''}</div></div>
+          <div class="amt ${a.amount > 0 ? 'in' : ''}">${a.amount > 0 ? '+' : '−'}${money(Math.abs(a.amount), true)}</div></div>`).join('')
+        : emptyHTML('history', 'gray', 'No Activity Yet', 'Mark bills paid and income received from Summary.')}
+      </div>
+    </div>
   </div>`;
 }
 
 function settingsView() {
   const snaps = readSnapshots().reverse();
-  const le = S.settings.lastExport;
-  return `
-  <section class="card">
-    <div class="set-section">
-      <div><h2>Projection</h2><div class="desc">How the runway is calculated.</div></div>
-      <div class="fields">
-        <div class="field"><label for="setCushion">Safety cushion ($)<input type="number" id="setCushion" min="0" step="100" value="${S.settings.cushion}" data-setting="cushion"></label><div class="hint">Runway ends when cash falls below this, not at $0.</div></div>
-        <div class="field"><label for="setHorizon">Projection length<select id="setHorizon" data-setting="horizon">${[12, 24, 36].map(m => `<option value="${m}" ${S.settings.horizon === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></label></div>
-      </div>
+  const le = S.settings.lastExport, fresh = le && daysBetween(parse(le), today()) <= 14;
+  return `<div style="max-width:720px;width:100%;margin:0 auto">
+    <div class="sect"><span>Projection</span></div>
+    <div class="group">
+      <label class="list-row has-tile">${tile('shield', 'green')}<div class="body">Safety Cushion</div><span class="value" style="display:flex;align-items:center;gap:2px">$<input type="number" id="setCushion" min="0" step="100" value="${S.settings.cushion}" data-setting="cushion" aria-label="Safety cushion in dollars"></span></label>
+      <label class="list-row has-tile">${tile('calendar', 'red')}<div class="body">Projection Length</div><span class="value"><select id="setHorizon" data-setting="horizon" aria-label="Projection length">${[12, 24, 36].map(m => `<option value="${m}" ${S.settings.horizon === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
+      <label class="list-row has-tile">${tile('target', 'orange')}<div class="body">Runway Goal</div><span class="value"><select data-setting="targetMonths" aria-label="Runway goal">${[3, 6, 9, 12, 18, 24].concat([S.settings.targetMonths]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(m => `<option value="${m}" ${S.settings.targetMonths === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
     </div>
-    <div class="set-section">
-      <div><h2>Backups</h2><div class="desc">An exported file is the only copy that survives clearing your browser. Keep one in cloud storage.</div></div>
-      <div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">${le && daysBetween(parse(le), today()) <= 14 ? badge('good', 'Up to date') : badge('warning', le ? 'Overdue' : 'Never exported')}<span class="sub">Last exported ${le ? safeDate(le) : 'never'}</span></div>
-        <div class="actions"><button class="btn primary" data-action="export">${ic('download')}Export backup</button><button class="btn" data-action="import">${ic('upload')}Import backup</button></div>
-      </div>
+    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0.</div>
+
+    <div class="sect"><span>Backup</span></div>
+    <div class="group">
+      <div class="list-row has-tile">${tile('archive', 'blue')}<div class="body">Last Exported</div><span class="value">${le ? safeDate(le) : 'Never'}</span>${fresh ? '<span class="tag green">Current</span>' : `<span class="tag orange">${le ? 'Overdue' : 'Needed'}</span>`}</div>
+      <div class="list-row action-row" data-action="export" role="button" tabindex="0">Export Backup…</div>
+      <div class="list-row action-row" data-action="import" role="button" tabindex="0">Import Backup…</div>
     </div>
-    <div class="set-section">
-      <div><h2>Snapshots</h2><div class="desc">Saved automatically each day you open the app (last ${MAX_AUTO_SNAPSHOTS} kept), and before any erase, import or restore.</div></div>
-      <div>${snaps.length ? `<div class="snap-list tablewrap"><table><thead><tr><th>Saved</th><th>Reason</th><th class="hide-sm">Contents</th><th></th></tr></thead><tbody>
-        ${snaps.map(s => { const d = s.data || {}; const n = k => (Array.isArray(d[k]) ? d[k].length : 0);
-          return `<tr><td>${esc(new Date(s.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</td><td>${esc(s.label)}</td>
-          <td class="hide-sm muted">${n('accounts')} accounts · ${n('bills')} bills · ${n('income')} income</td>
-          <td><div class="rowbtns" style="opacity:1"><button class="btn xs" data-action="restore" data-ts="${s.ts}">Restore</button></div></td></tr>`; }).join('')}
-      </tbody></table></div>` : '<div class="sub">No snapshots yet.</div>'}</div>
+    <div class="sect-foot">An exported file is the only copy that survives clearing your browser. Keep one in iCloud Drive or another safe place.</div>
+
+    <div class="sect"><span>Snapshots</span><span>${snaps.length}</span></div>
+    <div class="group">
+      ${snaps.length ? snaps.map(s => { const d = s.data || {}; const n = k => (Array.isArray(d[k]) ? d[k].length : 0);
+        return `<div class="list-row"><div class="body"><div class="t">${esc(new Date(s.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div><div class="s">${esc(s.label)} · ${n('accounts')} accounts, ${n('bills')} bills, ${n('income')} income</div></div><button class="btn xs tinted" data-action="restore" data-ts="${s.ts}">Restore</button></div>`; }).join('')
+        : '<div class="list-row"><div class="body l2">No snapshots yet</div></div>'}
     </div>
-  </section>
-  <section class="card danger-zone">
-    <div class="set-section">
-      <div><h2>Start over</h2><div class="desc">A snapshot is saved first, so either action can be undone from Snapshots.</div></div>
-      <div class="actions" style="align-content:start"><button class="btn" data-action="sample">Load sample data</button><button class="btn danger-solid" data-action="reset">${ic('trash')}Erase all data</button></div>
+    <div class="sect-foot">Saved automatically each day you open Runway (last ${MAX_AUTO_SNAPSHOTS} kept), and before any erase, import or restore.</div>
+
+    <div class="sect"><span>Data</span></div>
+    <div class="group">
+      <div class="list-row action-row" data-action="sample" role="button" tabindex="0">Load Sample Data</div>
+      <div class="list-row action-row destructive" data-action="reset" role="button" tabindex="0">Erase All Data</div>
     </div>
-  </section>`;
+    <div class="sect-foot">A snapshot is saved first, so either can be undone.</div>
+  </div>`;
 }
 
 function welcomeHTML() {
-  return `<section class="card welcome fade">
-    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17c3-.8 5.5-3 7-6s3.2-5 6.5-5"/><path d="M4 21h16"/></svg></span>
-    <h2>Know exactly how long your money lasts</h2>
-    <p>Runway projects your balance day by day from your real bills and income, so you always know your number while you're between jobs.</p>
-    <div class="steps">
-      <div class="step"><div class="n">1</div><b>Add your accounts</b><span>Checking and savings you can spend.</span></div>
-      <div class="step"><div class="n">2</div><b>List your bills</b><span>Rent, insurance, groceries, loans.</span></div>
-      <div class="step"><div class="n">3</div><b>Add money coming in</b><span>Benefits, severance, freelance work.</span></div>
+  return `<div class="welcome fade">
+    <span class="app-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17c3-.8 5.5-3 7-6s3.2-5 6.5-5"/></svg></span>
+    <h2>Welcome to Runway</h2>
+    <div class="features">
+      <div class="feature">${ic('wallet')}<div><b>Know Your Number</b><span>See exactly how many months your cash lasts, projected day by day.</span></div></div>
+      <div class="feature">${ic('calendar')}<div><b>Every Bill, On Time</b><span>Track what's due and mark it paid in one tap.</span></div></div>
+      <div class="feature">${ic('lock')}<div><b>Private by Design</b><span>Everything stays on this device. Nothing is uploaded.</span></div></div>
     </div>
-    <div class="actions">
-      <button class="btn primary" data-action="add" data-kind="account">${ic('plus')}Add your first account</button>
-      <button class="btn" data-action="sample">Explore with sample data</button>
-      <button class="btn ghost" data-action="import">${ic('upload')}Import a backup</button>
+    <button class="btn primary lg" data-action="add" data-kind="account">Add Your First Account</button>
+    <div class="more">
+      <button class="btn plain" data-action="sample">Explore with Sample Data</button>
+      <button class="btn plain" data-action="import">Import a Backup</button>
     </div>
-    ${readSnapshots().length ? `<p class="sub" style="margin-top:18px">Looking for earlier data? <button class="btn xs" data-action="restore-latest">Restore latest snapshot</button></p>` : ''}
-  </section>`;
+    ${readSnapshots().length ? `<div class="more"><button class="btn plain" data-action="restore-latest">Restore Latest Snapshot</button></div>` : ''}
+  </div>`;
 }
 
 /* =====================================================================
@@ -684,7 +715,7 @@ function drawChart(all, ess, range) {
   const box = document.getElementById('chartBox');
   if (!box) return;
   const W = Math.max(280, box.clientWidth || 300), Hh = W < 560 ? 230 : 300;
-  const M = { l: 48, r: W < 560 ? 8 : 92, t: 16, b: 28 };
+  const M = { l: 46, r: W < 560 ? 8 : 92, t: 18, b: 28 };
   const t0 = today();
   const days = Math.max(1, Math.min(all.bal.length - 1, Math.round(range * MONTH)));
   const cks = S.checkins.map(c => ({ d: daysBetween(t0, parse(c.date)), v: c.total })).filter(c => c.d >= -183 && c.d <= 0);
@@ -702,10 +733,10 @@ function drawChart(all, ess, range) {
   const path = bal => { let p = ''; for (let d = 0; d <= days; d++) p += (d ? 'L' : 'M') + x(d).toFixed(1) + ' ' + y(bal[d]).toFixed(1); return p; };
   const base = y(Math.max(lo, Math.min(hi, 0)));
 
-  let g = `<defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="var(--s1)" stop-opacity=".16"/><stop offset="100%" stop-color="var(--s1)" stop-opacity="0"/></linearGradient></defs>`;
+  let g = `<defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#0a84ff" stop-opacity=".32"/><stop offset="100%" stop-color="#0a84ff" stop-opacity="0"/></linearGradient></defs>`;
   for (let v = lo; v <= hi + step / 2; v += step) {
-    g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
-          <text x="${M.l - 10}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${compact(v)}</text>`;
+    g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1" stroke-dasharray="2 4"/>
+          <text x="${M.l - 10}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="rgba(235,235,245,.5)">${compact(v)}</text>`;
   }
   const totalMonths = Math.ceil((days - dMin) / MONTH);
   const every = W < 560 ? (totalMonths > 12 ? 6 : 3) : (totalMonths > 18 ? 3 : totalMonths > 9 ? 2 : 1);
@@ -713,44 +744,43 @@ function drawChart(all, ess, range) {
   let mt = new Date(startD.getFullYear(), startD.getMonth() + 1, 1), idx = 0;
   while (daysBetween(t0, mt) <= days && idx < 600) {
     if (idx % every === 0) {
-      const xd = x(daysBetween(t0, mt));
       const lab = mt.getMonth() === 0 || idx === 0 ? mt.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) : mt.toLocaleDateString(undefined, { month: 'short' });
-      g += `<text x="${xd}" y="${Hh - 8}" text-anchor="middle" font-size="11" fill="var(--muted)">${lab}</text>`;
+      g += `<text x="${x(daysBetween(t0, mt))}" y="${Hh - 8}" text-anchor="middle" font-size="11" fill="rgba(235,235,245,.5)">${lab}</text>`;
     }
     mt = new Date(mt.getFullYear(), mt.getMonth() + 1, 1); idx++;
   }
   if (lo <= 0 && hi >= 0) g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)" stroke-width="1"/>`;
-  if (S.settings.cushion) g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(S.settings.cushion)}" y2="${y(S.settings.cushion)}" stroke="var(--faint)" stroke-width="1.25" stroke-dasharray="4 4"/>`;
-  if (dMin < 0) g += `<line x1="${x(0)}" x2="${x(0)}" y1="${M.t}" y2="${Hh - M.b}" stroke="var(--axis)" stroke-dasharray="2 3"/><text x="${x(0) + 6}" y="${M.t + 4}" font-size="11" font-weight="500" fill="var(--muted)">Today</text>`;
+  if (S.settings.cushion) g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(S.settings.cushion)}" y2="${y(S.settings.cushion)}" stroke="rgba(235,235,245,.4)" stroke-width="1.25" stroke-dasharray="4 4"/>`;
+  if (dMin < 0) g += `<line x1="${x(0)}" x2="${x(0)}" y1="${M.t}" y2="${Hh - M.b}" stroke="var(--axis)" stroke-dasharray="2 3"/><text x="${x(0) + 6}" y="${M.t + 2}" font-size="11" font-weight="600" fill="rgba(235,235,245,.6)">Today</text>`;
 
-  g += `<path d="${path(all.bal)}L${x(days).toFixed(1)} ${base}L${x(0).toFixed(1)} ${base}Z" fill="url(#areaFill)" stroke="none"/>`;
+  g += `<path d="${path(all.bal)}L${x(days).toFixed(1)} ${base}L${x(0).toFixed(1)} ${base}Z" fill="url(#areaFill)"/>`;
   g += `<path d="${path(ess.bal)}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>`;
-  g += `<path d="${path(all.bal)}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>`;
+  g += `<path d="${path(all.bal)}" fill="none" stroke="var(--s1)" stroke-width="2.25" stroke-linejoin="round"/>`;
   if (cks.length) {
     const pts = [...cks].sort((a, b) => a.d - b.d);
     if (pts.length > 1) g += `<path d="${pts.map((p, i) => (i ? 'L' : 'M') + x(p.d) + ' ' + y(p.v)).join('')}" fill="none" stroke="var(--s3)" stroke-width="2"/>`;
-    pts.forEach(p => { g += `<circle cx="${x(p.d)}" cy="${y(p.v)}" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>`; });
+    pts.forEach(p => { g += `<circle cx="${x(p.d)}" cy="${y(p.v)}" r="4.5" fill="var(--s3)" stroke="var(--bg-2)" stroke-width="2"/>`; });
   }
   const mark = (sim, col, below) => {
     if (sim.out < 0 || sim.out > days) return '';
     const cx = x(sim.out), cy = y(sim.bal[sim.out]);
     const label = `Out ${fmtDate(addDays(t0, sim.out), { month: 'short', day: 'numeric' })}`;
-    const w = label.length * 6.2 + 14, ty = below ? cy + 12 : cy - 30;
+    const w = label.length * 6.4 + 16, ty = below ? cy + 12 : cy - 32;
     const lx = Math.max(M.l, Math.min(W - M.r - w, cx - w / 2));
-    return `<circle cx="${cx}" cy="${cy}" r="5" fill="${col}" stroke="var(--surface)" stroke-width="2"/>
-      <rect x="${lx}" y="${ty}" width="${w}" height="18" rx="5" fill="var(--surface)" stroke="var(--border)"/>
-      <text x="${lx + w / 2}" y="${ty + 12.5}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)">${label}</text>`;
+    return `<circle cx="${cx}" cy="${cy}" r="5.5" fill="${col}" stroke="var(--bg-2)" stroke-width="2.5"/>
+      <rect x="${lx}" y="${ty}" width="${w}" height="20" rx="10" fill="#3a3a3c"/>
+      <text x="${lx + w / 2}" y="${ty + 14}" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">${label}</text>`;
   };
   g += mark(all, 'var(--s1)', false);
   if (ess.out !== all.out) g += mark(ess, 'var(--s2)', true);
   if (M.r > 40) {
     let ya = y(all.bal[days]), ye = y(ess.bal[days]);
     if (Math.abs(ya - ye) < 28) { const mid = (ya + ye) / 2, s = ya <= ye ? -1 : 1; ya = mid + s * 14; ye = mid - s * 14; }
-    g += `<text x="${W - M.r + 10}" y="${ya - 2}" font-size="11" fill="var(--muted)">All bills</text><text x="${W - M.r + 10}" y="${ya + 12}" font-size="12" font-weight="600" fill="var(--ink)">${compact(all.bal[days])}</text>`;
-    g += `<text x="${W - M.r + 10}" y="${ye - 2}" font-size="11" fill="var(--muted)">Essentials</text><text x="${W - M.r + 10}" y="${ye + 12}" font-size="12" font-weight="600" fill="var(--ink)">${compact(ess.bal[days])}</text>`;
+    g += `<text x="${W - M.r + 10}" y="${ya - 2}" font-size="11" fill="rgba(235,235,245,.55)">All bills</text><text x="${W - M.r + 10}" y="${ya + 12}" font-size="12" font-weight="600" fill="#fff">${compact(all.bal[days])}</text>`;
+    g += `<text x="${W - M.r + 10}" y="${ye - 2}" font-size="11" fill="rgba(235,235,245,.55)">Essentials</text><text x="${W - M.r + 10}" y="${ye + 12}" font-size="12" font-weight="600" fill="#fff">${compact(ess.bal[days])}</text>`;
   }
-  g += `<g id="hover" style="display:none"><line id="hx" y1="${M.t}" y2="${Hh - M.b}" stroke="var(--border-strong)" stroke-width="1"/>
-        <circle id="ha" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/><circle id="he" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/></g>
+  g += `<g id="hover" style="display:none"><line id="hx" y1="${M.t}" y2="${Hh - M.b}" stroke="rgba(235,235,245,.35)" stroke-width="1"/>
+        <circle id="ha" r="5" fill="var(--s1)" stroke="var(--bg-2)" stroke-width="2.5"/><circle id="he" r="5" fill="var(--s2)" stroke="var(--bg-2)" stroke-width="2.5"/></g>
         <rect id="hit" x="${M.l}" y="${M.t}" width="${W - M.l - M.r}" height="${Hh - M.t - M.b}" fill="transparent"/>`;
 
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Projected cash balance over ${range} months">${g}</svg><div class="tip" id="tip"></div>`;
@@ -775,7 +805,7 @@ function drawChart(all, ess, range) {
     tip.innerHTML = `<div class="t">${fmtDate(addDays(t0, d), { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>${rows}`;
     tip.style.display = 'block';
     const bx = box.getBoundingClientRect(), tx = ev.clientX - bx.left;
-    tip.style.top = '4px';
+    tip.style.top = '0px';
     tip.style.left = (tx + 16 + tip.offsetWidth > bx.width ? Math.max(0, tx - tip.offsetWidth - 16) : tx + 16) + 'px';
   };
   const hit = svg.querySelector('#hit');
@@ -785,18 +815,17 @@ function drawChart(all, ess, range) {
 }
 
 /* =====================================================================
- * Dialogs and validation
+ * Sheets (dialogs) and validation
  * ===================================================================== */
 const dlg = document.getElementById('dlg'), form = document.getElementById('dlgForm');
 let onSubmit = null;
-function openDialog(title, fieldsHTML, submitLabel, handler, subtitle = '') {
-  form.innerHTML = `<div class="dlg-head"><div><h3>${title}</h3>${subtitle ? `<div class="sub">${subtitle}</div>` : ''}</div><button type="button" class="btn icon sm ghost" data-close aria-label="Close">${ic('x')}</button></div>
-    <div class="dlg-body">${fieldsHTML}<div class="form-error" role="alert" hidden></div></div>
-    <div class="dlg-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" value="ok">${submitLabel}</button></div>`;
+function openDialog(title, bodyHTML, submitLabel, handler) {
+  form.innerHTML = `<div class="sheet-head"><button type="button" class="btn plain" data-close>Cancel</button><h3>${title}</h3><button class="btn plain primary" value="ok">${submitLabel}</button></div>
+    <div class="sheet-body">${bodyHTML}<div class="form-error" role="alert" hidden></div></div>`;
   onSubmit = handler;
   if (dlg.open) dlg.close();
   dlg.showModal();
-  const first = form.querySelector('.dlg-body input, .dlg-body select');
+  const first = form.querySelector('.sheet-body input:not([type=checkbox]), .sheet-body select');
   if (first) first.focus();
 }
 form.addEventListener('submit', e => {
@@ -815,11 +844,16 @@ form.addEventListener('submit', e => {
   }
   dlg.close();
   render();
-  if (res.label) toast(res.label, () => { S = C.normalizeState(JSON.parse(before)).state; render(); toast('Undone.'); });
+  if (res.label) toast(res.label, () => { S = C.normalizeState(JSON.parse(before)).state; render(); toast('Undone'); });
 });
 form.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
+dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });   // tap outside the sheet
 
-const fld = (label, inner, hint) => `<div class="field"><label>${label}${inner}</label>${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
+/* sheet building blocks */
+const grp = (...rows) => `<div class="group">${rows.join('')}</div>`;
+const frow = (label, input) => `<label class="frow"><span>${label}</span>${input}</label>`;
+const gap = '<div style="height:24px"></div>';
+const note = t => `<div class="sect-foot" style="padding-bottom:4px">${t}</div>`;
 const freqSelect = v => `<select name="freq">${Object.entries(FREQ).map(([k, f]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${f.label}</option>`).join('')}</select>`;
 const CATS = ['Housing', 'Utilities', 'Insurance', 'Health', 'Food', 'Transportation', 'Debt', 'Phone & internet', 'Subscriptions', 'Childcare', 'Personal', 'Other'];
 
@@ -841,7 +875,7 @@ function validateFlow(fd) {
   if (!isISODate(fd.next)) return { error: 'Enter a valid date.', field: 'next' };
   const end = fd.end || '';
   if (end && !isISODate(end)) return { error: 'Enter a valid end date, or leave it blank.', field: 'end' };
-  if (end && end < fd.next) return { error: 'The last payment date can\'t be before the next date.', field: 'end' };
+  if (end && end < fd.next) return { error: 'The last payment can\'t be before the next date.', field: 'end' };
   return { ok: { name, amount, freq: fd.freq, next: fd.next, end } };
 }
 function anchorFor(prev, next, freq) {
@@ -859,80 +893,79 @@ function editBill(b) {
   const isNew = !b;
   const v = b || { name: '', amount: '', freq: 'monthly', next: iso(today()), category: 'Housing', essential: true, end: '' };
   const cats = [...new Set([...CATS, ...S.bills.map(x => x.category)])];
-  openDialog(isNew ? 'Add bill or expense' : 'Edit bill', `
-    ${fld('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Rent, car insurance, groceries…">`)}
-    <div class="row2">
-      ${fld('Amount ($)', `<input type="text" inputmode="decimal" name="amount" required value="${esc(v.amount)}" placeholder="0.00">`)}
-      ${fld('How often', freqSelect(v.freq))}
-    </div>
-    <div class="row2">
-      ${fld('Next due date', `<input type="date" name="next" required value="${esc(v.next)}">`)}
-      ${fld('Category', `<input type="text" name="category" maxlength="40" list="catList" value="${esc(v.category)}"><datalist id="catList">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>`)}
-    </div>
-    ${fld('Last payment (optional)', `<input type="date" name="end" value="${esc(v.end || '')}">`, 'For loans or plans that end, like a car payment.')}
-    <label class="check"><input type="checkbox" name="essential" ${v.essential ? 'checked' : ''}> Essential: I'd keep paying this even in a bare-bones budget</label>
-  `, isNew ? 'Add bill' : 'Save', fd => {
+  openDialog(isNew ? 'New Bill' : 'Edit Bill', `
+    ${grp(frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Rent, insurance…">`),
+          frow('Amount', `<input type="text" inputmode="decimal" name="amount" required value="${esc(v.amount)}" placeholder="$0.00">`))}
+    ${gap}
+    ${grp(frow('Repeats', freqSelect(v.freq)),
+          frow('Next Due', `<input type="date" name="next" required value="${esc(v.next)}">`),
+          frow('Ends', `<input type="date" name="end" value="${esc(v.end || '')}">`))}
+    ${note('Set an end date for loans or plans that finish, like a car payment.')}
+    ${gap}
+    ${grp(frow('Category', `<input type="text" name="category" maxlength="40" list="catList" value="${esc(v.category)}"><datalist id="catList">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>`),
+          frow('Essential', `<input type="checkbox" class="switch" name="essential" ${v.essential ? 'checked' : ''}>`))}
+    ${note('Essentials are bills you\'d keep paying on a bare-bones budget.')}
+  `, isNew ? 'Add' : 'Done', fd => {
     const r = validateFlow(fd);
     if (r.error) return r;
     upsert(S.bills, b, { id: b ? b.id : C.uid(), ...r.ok, anchorDay: anchorFor(b, r.ok.next, r.ok.freq), category: String(fd.category || '').trim().slice(0, 40) || 'Other', essential: !!fd.essential });
-    return { label: isNew ? `Added ${r.ok.name}.` : `Saved ${r.ok.name}.` };
+    return { label: isNew ? `Added ${r.ok.name}` : `Saved ${r.ok.name}` };
   });
 }
 function editIncome(i) {
   const isNew = !i;
   const v = i || { name: '', amount: '', freq: 'weekly', next: iso(today()), end: '' };
-  openDialog(isNew ? 'Add money coming in' : 'Edit income', `
-    ${fld('Source', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Unemployment benefits, severance, freelance…">`)}
-    <div class="row2">
-      ${fld('Amount ($, after tax)', `<input type="text" inputmode="decimal" name="amount" required value="${esc(v.amount)}" placeholder="0.00">`)}
-      ${fld('How often', freqSelect(v.freq))}
-    </div>
-    <div class="row2">
-      ${fld('Next payment date', `<input type="date" name="next" required value="${esc(v.next)}">`)}
-      ${fld('Last payment (optional)', `<input type="date" name="end" value="${esc(v.end || '')}">`)}
-    </div>
-    <div class="hint">Unemployment benefits usually stop after a set number of weeks, so give them an end date. Use "One time" for severance or a tax refund.</div>
-  `, isNew ? 'Add income' : 'Save', fd => {
+  openDialog(isNew ? 'New Income' : 'Edit Income', `
+    ${grp(frow('Source', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Unemployment, freelance…">`),
+          frow('Amount', `<input type="text" inputmode="decimal" name="amount" required value="${esc(v.amount)}" placeholder="$0.00 after tax">`))}
+    ${gap}
+    ${grp(frow('Repeats', freqSelect(v.freq)),
+          frow('Next Payment', `<input type="date" name="next" required value="${esc(v.next)}">`),
+          frow('Ends', `<input type="date" name="end" value="${esc(v.end || '')}">`))}
+    ${note('Benefits usually stop after a set number of weeks, so give them an end date. Use “One time” for severance or a tax refund.')}
+  `, isNew ? 'Add' : 'Done', fd => {
     const r = validateFlow(fd);
     if (r.error) return r;
     upsert(S.income, i, { id: i ? i.id : C.uid(), ...r.ok, anchorDay: anchorFor(i, r.ok.next, r.ok.freq) });
-    return { label: isNew ? `Added ${r.ok.name}.` : `Saved ${r.ok.name}.` };
+    return { label: isNew ? `Added ${r.ok.name}` : `Saved ${r.ok.name}` };
   });
 }
 function editAccount(a) {
   const isNew = !a;
   const v = a || { name: '', balance: '', include: true };
-  openDialog(isNew ? 'Add account' : 'Edit account', `
-    ${fld('Account name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Checking, high-yield savings…">`)}
-    ${fld('Current balance ($)', `<input type="text" inputmode="decimal" name="balance" required value="${esc(v.balance)}" placeholder="0.00">`, 'Use a minus sign if the account is overdrawn.')}
-    <label class="check"><input type="checkbox" name="include" ${v.include !== false ? 'checked' : ''}> Count this toward my runway</label>
-  `, isNew ? 'Add account' : 'Save', fd => {
+  openDialog(isNew ? 'New Account' : 'Edit Account', `
+    ${grp(frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Checking, savings…">`),
+          frow('Balance', `<input type="text" inputmode="decimal" name="balance" required value="${esc(v.balance)}" placeholder="$0.00">`))}
+    ${note('Use a minus sign if the account is overdrawn.')}
+    ${gap}
+    ${grp(frow('Count Toward Runway', `<input type="checkbox" class="switch" name="include" ${v.include !== false ? 'checked' : ''}>`))}
+  `, isNew ? 'Add' : 'Done', fd => {
     const name = String(fd.name || '').trim().slice(0, 120);
     if (!name) return { error: 'Give the account a name.', field: 'name' };
     const balance = amountOf(fd.balance, { allowNegative: true });
     if (balance === null) return { error: 'Enter the balance as a number, like 2500 or 2,500.00.', field: 'balance' };
     upsert(S.accounts, a, { id: a ? a.id : C.uid(), name, balance, include: !!fd.include, updated: iso(today()) });
-    return { label: isNew ? `Added ${name}.` : `Saved ${name}.` };
+    return { label: isNew ? `Added ${name}` : `Saved ${name}` };
   });
 }
 function checkinDialog() {
   if (!S.accounts.length) { editAccount(); return; }
-  openDialog('Balance check-in', `
-    <p class="sub" style="margin-top:-6px">Enter what each account shows right now. This updates your balances and records a data point.</p>
-    ${S.accounts.map(a => fld(esc(a.name) + (a.include === false ? ' <span class="muted">(not counted)</span>' : ''), `<input type="text" inputmode="decimal" name="acc_${esc(a.id)}" value="${a.balance}">`)).join('')}
-  `, 'Save check-in', fd => {
+  openDialog('Check In', `
+    <div class="lead">Enter what each account shows right now.</div>
+    ${grp(...S.accounts.map(a => frow(esc(a.name), `<input type="text" inputmode="decimal" name="acc_${esc(a.id)}" value="${a.balance}">`)))}
+  `, 'Save', fd => {
     const vals = {};
     for (const a of S.accounts) {
-      const v = amountOf(fd['acc_' + a.id], { allowNegative: true });
-      if (v === null) return { error: `Enter a number for ${a.name}.`, field: 'acc_' + a.id };
-      vals[a.id] = v;
+      const val = amountOf(fd['acc_' + a.id], { allowNegative: true });
+      if (val === null) return { error: `Enter a number for ${a.name}.`, field: 'acc_' + a.id };
+      vals[a.id] = val;
     }
     const d = iso(today());
     S.accounts.forEach(a => { a.balance = vals[a.id]; a.updated = d; });
     S.checkins = S.checkins.filter(c => c.date !== d);
     S.checkins.push({ date: d, total: cashTotal() });
     S.checkins.sort((x, y) => x.date.localeCompare(y.date));
-    return { label: `Check-in saved: ${money(cashTotal())}.` };
+    return { label: `Checked in at ${money(cashTotal())}` };
   });
 }
 function settle(kind, id) {
@@ -941,14 +974,13 @@ function settle(kind, id) {
   const counted = S.accounts.filter(a => a.include !== false);
   const accs = counted.length ? counted : S.accounts;
   const nxt = C.nextAfter(item);
-  openDialog(kind === 'bill' ? `Mark “${esc(item.name)}” paid` : `Mark “${esc(item.name)}” received`, `
-    <div class="row2">
-      ${fld('Amount ($)', `<input type="text" inputmode="decimal" name="amount" value="${item.amount}">`)}
-      ${fld('Date', `<input type="date" name="date" value="${iso(today())}">`)}
-    </div>
-    ${accs.length ? fld(kind === 'bill' ? 'Paid from' : 'Deposited to', `<select name="acc">${accs.map(a => `<option value="${esc(a.id)}">${esc(a.name)} (${money(a.balance)})</option>`).join('')}<option value="">Don't change any balance</option></select>`) : ''}
-    <div class="hint">The next date moves to ${nxt ? fmtDate(parse(nxt)) : '(none: this item is finished and will be removed)'}.</div>
-  `, kind === 'bill' ? 'Mark paid' : 'Mark received', fd => {
+  openDialog(kind === 'bill' ? 'Mark Paid' : 'Mark Received', `
+    <div class="lead">${esc(item.name)}</div>
+    ${grp(frow('Amount', `<input type="text" inputmode="decimal" name="amount" value="${item.amount}">`),
+          frow('Date', `<input type="date" name="date" value="${iso(today())}">`),
+          ...(accs.length ? [frow(kind === 'bill' ? 'Paid From' : 'Deposit To', `<select name="acc">${accs.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}<option value="">None</option></select>`)] : []))}
+    ${note(nxt ? `Next date moves to ${fmtDate(parse(nxt))}.` : 'This was the last one, so it will be removed.')}
+  `, kind === 'bill' ? 'Paid' : 'Done', fd => {
     const amt = amountOf(fd.amount);
     if (amt === null) return { error: 'Enter the amount as a number.', field: 'amount' };
     if (!isISODate(fd.date)) return { error: 'Enter a valid date.', field: 'date' };
@@ -959,7 +991,7 @@ function settle(kind, id) {
     if (S.activity.length > C.MAX_ACTIVITY) S.activity = S.activity.slice(-C.MAX_ACTIVITY);
     const n = C.nextAfter(item);
     if (n) item.next = n; else list.splice(list.indexOf(item), 1);
-    return { label: `${item.name} marked ${kind === 'bill' ? 'paid' : 'received'}.` };
+    return { label: `${item.name} marked ${kind === 'bill' ? 'paid' : 'received'}` };
   });
 }
 
@@ -1073,6 +1105,8 @@ document.addEventListener('click', e => {
     case 'checkin': checkinDialog(); break;
     case 'delck': commit('Check-in deleted.', () => { S.checkins = S.checkins.filter(c => c.date !== el.dataset.date); }); break;
     case 'tab': if (VIEWS[el.dataset.tab]) { ui.view = el.dataset.tab; render(); window.scrollTo({ top: 0 }); } break;
+    case 'toggle-upcoming': ui.showAllUpcoming = !ui.showAllUpcoming; render(); break;
+    case 'goal': S.settings.targetMonths = Math.max(1, Math.min(60, S.settings.targetMonths + (+el.dataset.d || 0))); render(); break;
     case 'billfilter': ui.billFilter = el.dataset.f; render(); break;
     case 'range': ui.range = +el.dataset.m; render(); break;
     case 'sample':
@@ -1091,14 +1125,11 @@ document.addEventListener('click', e => {
     case 'restore-latest': restoreSnapshot(readSnapshots().pop()); break;
     case 'reload': location.reload(); break;
     case 'dismiss-notice': loadNotices.splice(+el.dataset.i, 1); renderBanners(); break;
-    case 'theme': {
-      const r = document.documentElement;
-      const dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-      r.dataset.theme = dark ? 'light' : 'dark';
-      try { ls.set(THEME_KEY, r.dataset.theme); } catch (er) {}
-      render(); break;
-    }
   }
+});
+/* Rows that act like buttons respond to Enter and Space. */
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.list-row[data-action]')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset && e.target.dataset.setting;
@@ -1136,7 +1167,6 @@ window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() =
 window.addEventListener('error', ev => { console.error(ev.error || ev.message); toast('Something went wrong. Your data is saved; try reloading if things look off.'); });
 window.addEventListener('unhandledrejection', ev => { console.error(ev.reason); });
 
-try { const th = ls.get(THEME_KEY); if (th === 'light' || th === 'dark') document.documentElement.dataset.theme = th; } catch (e) {}
 snapshot('Daily auto-save', S, { daily: true });
 render();
 })();
