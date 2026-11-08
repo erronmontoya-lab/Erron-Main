@@ -1,0 +1,198 @@
+/*
+ * Browser tests for the robustness features. Needs Playwright with Chromium:
+ *   npm run test:e2e
+ */
+'use strict';
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+
+const URL = 'file://' + path.resolve(__dirname, '..', 'index.html');
+const KEY = 'runway-tracker.v1';
+const results = [];
+
+async function run(name, fn) {
+  try { await fn(); results.push(['ok', name]); console.log('ok -', name); }
+  catch (e) { results.push(['FAIL', name]); console.log('FAIL -', name, '\n ', e.message); }
+}
+
+(async () => {
+  const browser = await chromium.launch();
+  const newCtx = async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const errors = [];
+    ctx.on('page', p => {
+      p.on('pageerror', e => errors.push(e.message));
+      p.on('dialog', d => d.accept());
+    });
+    return { ctx, errors };
+  };
+
+  await run('sample data renders with no errors and the runway headline', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    assert.match(await p.locator('.hero-main .big').innerText(), /\d/);
+    assert.equal(await p.locator('#chartBox svg').count(), 1);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('form validation keeps the dialog open and changes nothing', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    const before = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).bills.length, KEY);
+    await p.click('button[data-action=add][data-kind=bill]');
+    await p.fill('input[name=name]', 'Storage unit');
+    await p.fill('input[name=amount]', 'abc');
+    await p.click('dialog button.primary');
+    assert.ok(await p.locator('dialog[open]').isVisible());
+    assert.match(await p.locator('.form-error').innerText(), /amount/i);
+    await p.fill('input[name=amount]', '$1,250.50');
+    await p.fill('input[name=next]', '2027-03-10');
+    await p.fill('input[name=end]', '2027-01-01');
+    await p.click('dialog button.primary');
+    assert.match(await p.locator('.form-error').innerText(), /before/i);
+    await p.fill('input[name=end]', '');
+    await p.click('dialog button.primary');
+    assert.equal(await p.locator('dialog[open]').count(), 0);
+    const saved = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).bills, KEY);
+    assert.equal(saved.length, before + 1);
+    assert.equal(saved.find(b => b.name === 'Storage unit').amount, 1250.5);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('delete can be undone', async () => {
+    const { ctx } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    const n = await p.locator('button[data-action=del][data-kind=bill]').count();
+    await p.locator('button[data-action=del][data-kind=bill]').first().click();
+    assert.equal(await p.locator('button[data-action=del][data-kind=bill]').count(), n - 1);
+    await p.click('#toast [data-undo]');
+    assert.equal(await p.locator('button[data-action=del][data-kind=bill]').count(), n);
+    await ctx.close();
+  });
+
+  await run('corrupted storage falls back to the latest snapshot', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    await p.reload();                                     // takes today's daily snapshot of sample data
+    await p.evaluate(k => localStorage.setItem(k, '{"accounts": [oops'), KEY);
+    await p.reload();
+    assert.match(await p.locator('#banners').innerText(), /could not be read/i);
+    assert.ok(await p.locator('.hero-main').isVisible());
+    const kept = await p.evaluate(k => Object.keys(localStorage).some(x => x.startsWith(k + '.corrupt-')), KEY);
+    assert.ok(kept, 'unreadable data is set aside');
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('blocked storage shows a "not being saved" warning', async () => {
+    const { ctx, errors } = await newCtx();
+    await ctx.addInitScript(() => {
+      Storage.prototype.setItem = function () { const e = new Error('full'); e.name = 'QuotaExceededError'; throw e; };
+    });
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    assert.match(await p.locator('#banners').innerText(), /not being saved/i);
+    assert.ok(await p.locator('.hero-main').isVisible());
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('old version-1 data loads and migrates', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.evaluate(k => localStorage.setItem(k, JSON.stringify({
+      version: 1,
+      accounts: [{ id: 'a1', name: 'Checking', balance: 5000, include: true }],
+      bills: [{ id: 'b1', name: 'Rent', amount: 1500, freq: 'monthly', next: '2030-01-31', category: 'Housing', essential: true }],
+      income: [], checkins: [], activity: [], settings: { cushion: 0, targetMonths: 12, horizon: 24 }
+    })), KEY);
+    await p.reload();
+    const s = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), KEY);
+    assert.equal(s.version, 2);
+    assert.equal(s.bills[0].anchorDay, 31);
+    assert.match(await p.locator('.hero-main .sub').innerText(), /runs out|beyond/);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('import rejects junk and repairs a damaged backup', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    const alerts = [];
+    p.removeAllListeners('dialog');
+    p.on('dialog', d => { alerts.push(d.message()); d.accept(); });
+    await p.goto(URL);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runway-'));
+    const junk = path.join(dir, 'junk.json'); fs.writeFileSync(junk, 'not json at all');
+    await p.setInputFiles('#importFile', junk);
+    await p.waitForTimeout(200);
+    assert.match(alerts.pop() || '', /not a valid/i);
+    const damaged = path.join(dir, 'damaged.json');
+    fs.writeFileSync(damaged, JSON.stringify({
+      accounts: [{ name: 'Savings', balance: '9000' }],
+      bills: [{ name: 'Phone', amount: 80, freq: 'monthly', next: '2030-02-05' }, { name: 'Broken', amount: 10, next: 'never' }]
+    }));
+    await p.setInputFiles('#importFile', damaged);
+    await p.waitForTimeout(200);
+    assert.match(alerts.pop() || '', /repaired/i);
+    const s = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), KEY);
+    assert.equal(s.accounts[0].balance, 9000);
+    assert.deepEqual(s.bills.map(b => b.name), ['Phone']);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('erase saves a snapshot that can be restored', async () => {
+    const { ctx } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    await p.click('[data-tab=settings]');
+    await p.click('[data-action=reset]');
+    assert.ok(await p.locator('.welcome').isVisible());
+    await p.click('[data-action=restore-latest]');
+    assert.ok(await p.locator('.hero-main').isVisible());
+    await ctx.close();
+  });
+
+  await run('a change in one tab shows up in another', async () => {
+    const { ctx } = await newCtx();
+    const a = await ctx.newPage(), b = await ctx.newPage();
+    await a.goto(URL);
+    await a.click('text=Explore with sample data');
+    await b.goto(URL);
+    const n = await b.locator('button[data-action=del][data-kind=bill]').count();
+    await a.locator('button[data-action=del][data-kind=bill]').first().click();
+    await b.waitForFunction(m => document.querySelectorAll('button[data-action=del][data-kind=bill]').length === m, n - 1, { timeout: 3000 });
+    await ctx.close();
+  });
+
+  await run('phone width has no sideways scroll', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+    await ctx.close();
+  });
+
+  await browser.close();
+  const failed = results.filter(r => r[0] === 'FAIL').length;
+  console.log(`\n${results.length - failed} passed, ${failed} failed`);
+  process.exit(failed ? 1 : 0);
+})();

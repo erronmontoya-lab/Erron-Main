@@ -1,0 +1,25 @@
+name: Runway Tracker tests
+
+on:
+  push:
+    paths: ['runway/**', '.github/workflows/runway-tests.yml']
+  pull_request:
+    paths: ['runway/**', '.github/workflows/runway-tests.yml']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests (projection math, dates, data repair)
+        run: npm test
+      - name: Install Playwright
+        run: npm install --no-save playwright@1.48.2 && npx playwright install --with-deps chromium
+      - name: Browser tests (storage failures, import, undo, multi-tab)
+        run: npm run test:e2e

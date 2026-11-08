@@ -4,7 +4,7 @@ A personal finance tracker for when you're between jobs. It shows your bills, th
 
 ## Run it
 
-Open `runway/index.html` in any browser. There's nothing to install and no server. All data stays in that browser's local storage.
+Open `runway/index.html` in any browser. There's nothing to install and no server. Keep `index.html`, `core.js` and `app.js` in the same folder. All data stays in that browser's local storage.
 
 Click **Explore with sample data** to try it out, then **Settings → Erase all data** when you're ready to enter your own numbers.
 
@@ -18,6 +18,20 @@ Click **Explore with sample data** to try it out, then **Settings → Erase all 
 - **Balance check-ins**: once a week, enter what your accounts show. The chart plots your real balance next to the projection.
 - **Where the money goes**: monthly spending by category.
 
-## Back up your data
+## Keeping your data safe
 
-Data lives only in the browser you use. Click **Export backup** now and then to download a JSON file. **Import** restores it, for example on another computer.
+Data lives only in the browser you use, so the app protects it in layers:
+
+- **Daily snapshots.** Each day you open the app, a copy is saved in the browser (the last 14 are kept). One is also saved before any erase, import, sample-data load or restore. Restore any of them from **Settings & backups**.
+- **Undo.** Deleting, skipping, marking paid, importing and erasing all show an **Undo** button for 10 seconds.
+- **Exported backups.** **Export backup** downloads a JSON file, the only copy that survives clearing your browser. The app reminds you if your last export is more than 14 days old. **Import** restores it on any computer.
+- **Recovery.** If saved data gets corrupted, the app restores the newest readable snapshot and sets the bad data aside instead of deleting it. If the browser blocks storage (a private window, or a full disk), a red banner says changes aren't being saved.
+- **Validation.** Forms reject bad amounts and dates. Imported or old-format files are checked and repaired, and the app lists what it fixed.
+- **Multiple tabs.** A change in one tab shows up in the others, so an old tab can't overwrite newer data.
+
+## Development
+
+- `core.js`: all date and projection math, with no browser code, so it can be tested.
+- `app.js`: the interface, storage and backups.
+- `npm test` runs the unit tests in `test/core.test.js`: date edge cases (month ends, leap years, daylight saving), runway math, data repair.
+- `npm run test:e2e` runs the browser tests in `test/e2e.js`. These need Playwright and Chromium.
