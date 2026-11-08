@@ -47,6 +47,7 @@ async function run(name, fn) {
     await p.goto(URL);
     await p.click('text=Explore with sample data');
     const before = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).bills.length, KEY);
+    await p.click('[data-tab=bills]');
     await p.click('button[data-action=add][data-kind=bill]');
     await p.fill('input[name=name]', 'Storage unit');
     await p.fill('input[name=amount]', 'abc');
@@ -73,7 +74,9 @@ async function run(name, fn) {
     const p = await ctx.newPage();
     await p.goto(URL);
     await p.click('text=Explore with sample data');
+    await p.click('[data-tab=bills]');
     const n = await p.locator('button[data-action=del][data-kind=bill]').count();
+    assert.ok(n > 0);
     await p.locator('button[data-action=del][data-kind=bill]').first().click();
     assert.equal(await p.locator('button[data-action=del][data-kind=bill]').count(), n - 1);
     await p.click('#toast [data-undo]');
@@ -175,10 +178,28 @@ async function run(name, fn) {
     const a = await ctx.newPage(), b = await ctx.newPage();
     await a.goto(URL);
     await a.click('text=Explore with sample data');
+    await a.click('[data-tab=bills]');
     await b.goto(URL);
     const n = await b.locator('button[data-action=del][data-kind=bill]').count();
     await a.locator('button[data-action=del][data-kind=bill]').first().click();
     await b.waitForFunction(m => document.querySelectorAll('button[data-action=del][data-kind=bill]').length === m, n - 1, { timeout: 3000 });
+    await ctx.close();
+  });
+
+  await run('every page renders without errors', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    for (const v of ['bills', 'income', 'accounts', 'history', 'settings', 'overview']) {
+      await p.click(`[data-tab=${v}]`);
+      assert.equal(await p.locator(`[data-tab=${v}][aria-current=page]`).count(), 1, v);
+    }
+    await p.click('[data-tab=bills]');
+    await p.click('[data-action=billfilter][data-f=extras]');
+    assert.ok(await p.locator('tbody tr').count() > 0);
+    await p.click('[data-action=theme]');
+    assert.deepEqual(errors, []);
     await ctx.close();
   });
 
@@ -187,7 +208,10 @@ async function run(name, fn) {
     const p = await ctx.newPage();
     await p.goto(URL);
     await p.click('text=Explore with sample data');
-    assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+    for (const v of ['overview', 'bills', 'income', 'accounts', 'history', 'settings']) {
+      await p.click(`[data-tab=${v}]`);
+      assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, v);
+    }
     await ctx.close();
   });
 

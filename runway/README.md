@@ -10,6 +10,9 @@ Click **Explore with sample data** to try it out, then **Settings → Erase all 
 
 ## What it does
 
+The app has a sidebar with six pages: **Overview** (runway, key numbers, what needs attention, the projection chart, the next 30 days, your runway goal), **Bills & expenses**, **Income**, **Accounts**, **History** and **Settings**. It follows your system's light or dark mode, and the moon/sun button switches it.
+
+
 - **Runway**: projects your balance day by day from your actual bill due dates and income dates, and tells you when cash drops below your safety cushion.
 - **Essentials-only runway**: mark bills as essential to see how long you'd last on a bare-bones budget.
 - **Income that ends**: give unemployment benefits, severance or a short freelance contract an end date. The projection stops counting it after that date and warns you 60 days ahead.
