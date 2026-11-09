@@ -268,7 +268,7 @@ function computeModel() {
     essMo: monthly(S.bills, b => b.freq !== 'once' && b.essential && isActive(b)),
     incMo: monthly(S.income, i => i.freq !== 'once' && isActive(i)),
     cardMin: C.monthlyMinimums(S),
-    cred: C.creditSummary(S).cards ? C.planCredit(S, { days: H }, t0) : null
+    cred: C.creditSummary(S).cards ? C.creditProjection(S, { days: H }, t0) : null
   };
 }
 
@@ -425,7 +425,7 @@ const kpi = (label, icon, color, val, note) => `<div class="card kpi"><div class
 function attentionItems() {
   const t0 = today(), A = [];
   const overdue = S.bills.filter(b => parse(b.next) < t0);
-  if (overdue.length) A.push(['alert', 'red', `${overdue.length} Overdue Bill${overdue.length > 1 ? 's' : ''}`, listNames(overdue), '']);
+  if (overdue.length) A.push(['alert', 'red', `${overdue.length} Bill${overdue.length > 1 ? 's' : ''} Past Due`, `${listNames(overdue)}. If paid, check in to mark ${overdue.length > 1 ? 'them' : 'it'} done.`, `<button class="btn xs tinted" data-action="checkin">Check In</button>`]);
   const cs = C.creditSummary(S);
   const dupes = cs.owedAll > 0 ? S.bills.filter(b => /\b(card|visa|amex|american express|mastercard|discover)\b/i.test(b.name)) : [];
   if (dupes.length) A.push(['accounts', 'indigo', 'Card Payment Listed as a Bill?', `Runway already counts your card minimums. If ${listNames(dupes)} ${dupes.length > 1 ? 'are card payments' : 'is a card payment'}, delete ${dupes.length > 1 ? 'them' : 'it'} so it isn’t counted twice.`, '']);
@@ -542,7 +542,7 @@ function creditHTML() {
     ${big}
     <div style="margin-top:14px">
       ${row('Usable credit', `${money(cs.usable)} <span class="l3" style="font-weight:500">of ${money(cs.limit)}</span>`)}
-      ${startDay > 0 && extra >= 0.05 ? row('Cards start covering bills', fmtDate(addDays(today(), startDay), { month: 'short', day: 'numeric', year: 'numeric' })) : ''}
+      ${S.settings.creditStrategy === 'now' ? row('Card strategy', 'Carrying a balance from today') : startDay > 0 && extra >= 0.05 ? row('Cards start covering bills', fmtDate(addDays(today(), startDay), { month: 'short', day: 'numeric', year: 'numeric' })) : ''}
       ${row('Card debt by then', money(owedEnd), owedEnd > cs.owed + 1 ? 'var(--orange)' : '')}
       ${row('Interest by then', money(toEnd.interest), toEnd.interest > 1 ? 'var(--red)' : '')}
       ${row('Bills a card can pay', `${cardBills} of ${S.bills.length}`)}
@@ -653,7 +653,8 @@ function incomeView() {
         ${tile(i.freq === 'once' ? 'sparkles' : 'briefcase', isActive(i) ? 'green' : 'gray')}
         <div class="body">
           <div class="t">${esc(i.name)}${!isActive(i) ? '<span class="tag">Ended</span>' : ''}</div>
-          <div class="s">${FREQ[i.freq].label}${i.end ? ` · ends ${safeDate(i.end, { month: 'short', day: 'numeric' })} (${Math.max(0, daysBetween(t0, parse(i.end)))} days)` : ' · ongoing'}</div>
+          <div class="s">${(() => { const e = C.endOf(i), left = C.paymentsLeft(i);
+            return FREQ[i.freq].label + (e ? ` · ends ${safeDate(e, { month: 'short', day: 'numeric', year: 'numeric' })}` : ' · ongoing') + (left !== null ? ` · ${left} payment${left === 1 ? '' : 's'} left of ${money(i.remaining)}` : ''); })()}</div>
         </div>
         <div class="end"><div class="amt in">+${money(i.amount, true)}</div><div class="foot13">${dueText(i, 'income')}</div></div>
         ${ic('chevron', 'chev')}
@@ -758,9 +759,12 @@ function settingsView() {
       <label class="list-row has-tile">${tile('shield', 'green')}<div class="body">Safety Cushion</div><span class="value" style="display:flex;align-items:center;gap:2px">$<input type="number" id="setCushion" min="0" step="100" value="${S.settings.cushion}" data-setting="cushion" aria-label="Safety cushion in dollars"></span></label>
       <label class="list-row has-tile">${tile('calendar', 'red')}<div class="body">Projection Length</div><span class="value"><select id="setHorizon" data-setting="horizon" aria-label="Projection length">${[12, 24, 36].map(m => `<option value="${m}" ${S.settings.horizon === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
       <label class="list-row has-tile">${tile('target', 'orange')}<div class="body">Runway Goal</div><span class="value"><select data-setting="targetMonths" aria-label="Runway goal">${[3, 6, 9, 12, 18, 24].concat([S.settings.targetMonths]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(m => `<option value="${m}" ${S.settings.targetMonths === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
+      <label class="list-row has-tile">${tile('accounts', 'blue')}<div class="body">Use Cards</div><span class="value"><select data-setting="creditStrategy" aria-label="When to use credit cards">
+        <option value="late" ${S.settings.creditStrategy !== 'now' ? 'selected' : ''}>Only when cash runs low</option>
+        <option value="now" ${S.settings.creditStrategy === 'now' ? 'selected' : ''}>Carry a balance from now</option></select></span></label>
       <label class="list-row has-tile">${tile('accounts', 'indigo')}<div class="body">Use Up To</div><span class="value"><select data-setting="creditCap" aria-label="Share of each card limit to use">${[30, 50, 60, 70, 80, 90, 100].concat([S.settings.creditCap]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(p => `<option value="${p}" ${S.settings.creditCap === p ? 'selected' : ''}>${p}% of card limits</option>`).join('')}</select></span></label>
     </div>
-    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0. Card companies can lower limits without notice, so the credit runway counts only part of each limit.</div>
+    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0. Card companies can lower limits without notice, so the credit runway counts only part of each limit. “Only when cash runs low” starts carrying card balances as late as possible and costs the least interest; “Carry a balance from now” matches putting card bills on the card today.</div>
 
     <div class="sect"><span>Backup</span></div>
     <div class="group">
@@ -1025,12 +1029,25 @@ function editIncome(i) {
     ${grp(frow('Repeats', freqSelect(v.freq)),
           frow('Next Payment', `<input type="date" name="next" required value="${esc(v.next)}">`),
           frow('Ends', `<input type="date" name="end" value="${esc(v.end || '')}">`))}
-    ${note('Benefits usually stop after a set number of weeks, so give them an end date. Use “One time” for severance or a tax refund.')}
+    ${note('Use “One time” for severance or a tax refund.')}
+    ${gap}
+    ${grp(frow('Balance Left', `<input type="text" inputmode="decimal" name="remaining" value="${esc(v.remaining ?? '')}" placeholder="Optional">`),
+          frow('Each Payment Before Tax', `<input type="text" inputmode="decimal" name="gross" value="${esc(v.gross ?? '')}" placeholder="Optional">`))}
+    ${note('For unemployment: enter the benefit balance left and the weekly amount before withholding, both from your state’s benefits portal. Runway counts the balance down with each payment and stops the income when it runs out, so you don’t need an end date.')}
     ${isNew ? '' : gap + grp(`<button type="button" class="list-row action-row destructive" data-action="del" data-kind="income" data-id="${esc(i.id)}">Delete Income</button>`)}
   `, isNew ? 'Add' : 'Done', fd => {
     const r = validateFlow(fd);
     if (r.error) return r;
-    upsert(S.income, i, { id: i ? i.id : C.uid(), ...r.ok, anchorDay: anchorFor(i, r.ok.next, r.ok.freq) });
+    const hasRem = String(fd.remaining || '').trim() !== '', hasGross = String(fd.gross || '').trim() !== '';
+    let benefit = {};
+    if (hasRem || hasGross) {
+      const remaining = amountOf(fd.remaining), gross = amountOf(fd.gross, { allowZero: false });
+      if (remaining === null) return { error: 'Enter the balance left as a number, or clear both benefit fields.', field: 'remaining' };
+      if (gross === null) return { error: 'Enter each payment before tax, or clear both benefit fields.', field: 'gross' };
+      if (gross < r.ok.amount) return { error: 'The amount before tax can’t be less than the amount deposited.', field: 'gross' };
+      benefit = { remaining, gross };
+    }
+    upsert(S.income, i, { id: i ? i.id : C.uid(), ...r.ok, anchorDay: anchorFor(i, r.ok.next, r.ok.freq), ...benefit });
     return { label: isNew ? `Added ${r.ok.name}` : `Saved ${r.ok.name}` };
   });
 }
@@ -1075,11 +1092,32 @@ form.addEventListener('change', e => {
   const il = form.querySelector('[data-label-include]'); if (il) il.textContent = credit ? 'Use for Runway' : 'Count Toward Runway';
   form.querySelector('.sheet-head h3').textContent = credit ? 'Credit Card' : 'Account';
 });
+/** Benefit payments reduce the balance left. */
+function countDown(item) {
+  if (item.remaining > 0 && item.gross > 0) item.remaining = round2(Math.max(0, item.remaining - item.gross));
+}
+/** Every bill and income dated before today, with how many times each came due. */
+function pastDue() {
+  const t0 = today(), y = addDays(t0, -1), out = [];
+  for (const [kind, list] of [['bill', S.bills], ['income', S.income]]) {
+    for (const it of list) {
+      const dates = C.occurrences(it, y);
+      if (dates.length) out.push({ kind, it, dates });
+    }
+  }
+  return out.sort((a, b) => a.dates[0] - b.dates[0]);
+}
 function checkinDialog() {
   if (!S.accounts.length) { editAccount(); return; }
+  const due = pastDue();
+  const dueRows = due.map(({ kind, it, dates }) => frow(
+    `${esc(it.name)}<span class="l2" style="display:block;font-size:12px">${dates.length > 1 ? `${dates.length} times since ` : ''}${fmtDate(dates[0], { month: 'short', day: 'numeric' })} · ${kind === 'bill' ? '−' : '+'}${money(it.amount * dates.length, true)}</span>`,
+    `<input type="checkbox" class="switch" name="done_${kind}_${esc(it.id)}" checked>`));
   openDialog('Check In', `
     <div class="lead">Enter what each account shows right now.</div>
     ${grp(...S.accounts.map(a => frow(esc(a.name) + (a.type === 'credit' ? ' <span class="l2">owed</span>' : ''), `<input type="text" inputmode="decimal" name="acc_${esc(a.id)}" value="${a.balance}">`)))}
+    ${due.length ? `${gap}<div class="sect"><span>Already Happened</span><span>${due.length}</span></div>${grp(...dueRows)}
+      ${note('These were due before today, so your balances above should already include them. They’ll be marked done and moved to their next date. Switch off anything that hasn’t actually gone through yet.')}` : ''}
   `, 'Save', fd => {
     const vals = {};
     for (const a of S.accounts) {
@@ -1089,10 +1127,25 @@ function checkinDialog() {
     }
     const d = iso(today());
     S.accounts.forEach(a => { a.balance = vals[a.id]; a.updated = d; });
+    let settled = 0;
+    for (const { kind, it, dates } of due) {
+      if (!fd[`done_${kind}_${it.id}`]) continue;
+      const list = listFor(kind);
+      if (!list.includes(it)) continue;
+      for (const dt of dates) {
+        S.activity.push({ date: iso(dt), name: it.name, amount: kind === 'bill' ? -it.amount : it.amount, account: 'Settled at check-in' });
+        if (kind === 'income') countDown(it);
+        settled++;
+      }
+      let n = it.next;
+      for (let k = 0; k < dates.length && n; k++) { it.next = n; n = C.nextAfter(it); }
+      if (n) it.next = n; else list.splice(list.indexOf(it), 1);
+    }
+    if (S.activity.length > C.MAX_ACTIVITY) S.activity = S.activity.slice(-C.MAX_ACTIVITY);
     S.checkins = S.checkins.filter(c => c.date !== d);
     S.checkins.push({ date: d, total: cashTotal() });
     S.checkins.sort((x, y) => x.date.localeCompare(y.date));
-    return { label: `Checked in at ${money(cashTotal())}` };
+    return { label: `Checked in at ${money(cashTotal())}${settled ? ` · ${settled} item${settled === 1 ? '' : 's'} marked done` : ''}` };
   });
 }
 function settle(kind, id) {
@@ -1117,6 +1170,7 @@ function settle(kind, id) {
     if (acc) { acc.balance = round2(acc.balance + (acc.type === 'credit' ? amt : kind === 'bill' ? -amt : amt)); acc.updated = iso(today()); }
     S.activity.push({ date: fd.date, name: item.name, amount: kind === 'bill' ? -amt : amt, account: acc ? acc.name : '' });
     if (S.activity.length > C.MAX_ACTIVITY) S.activity = S.activity.slice(-C.MAX_ACTIVITY);
+    countDown(item);
     const n = C.nextAfter(item);
     if (n) item.next = n; else list.splice(list.indexOf(item), 1);
     return { label: `${item.name} marked ${kind === 'bill' ? 'paid' : 'received'}` };
@@ -1493,6 +1547,7 @@ document.addEventListener('change', e => {
   if (k === 'targetMonths') S.settings.targetMonths = Number.isFinite(v) ? Math.max(1, Math.min(60, Math.round(v))) : 12;
   else if (k === 'cushion') S.settings.cushion = Number.isFinite(v) ? round2(Math.max(0, Math.min(1e9, v))) : 0;
   else if (k === 'horizon') S.settings.horizon = [12, 24, 36].includes(v) ? v : 24;
+  else if (k === 'creditStrategy') S.settings.creditStrategy = e.target.value === 'now' ? 'now' : 'late';
   else if (k === 'creditCap') S.settings.creditCap = Number.isFinite(v) ? Math.max(10, Math.min(100, Math.round(v))) : 80;
   render();
 });

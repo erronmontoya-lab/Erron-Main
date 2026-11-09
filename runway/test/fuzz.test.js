@@ -18,7 +18,7 @@ function randomState() {
   const bills = [];
   for (let i = 0, n = Math.floor(rnd() * 25); i < n; i++) bills.push({ name: 'Bill' + i, amount: Math.round(rnd() * 2000 * 100) / 100, freq: pick(FREQS), next: date(-40, 200), end: rnd() > 0.8 ? date(30, 600) : '', essential: rnd() > 0.3, card: rnd() > 0.4 });
   const income = [];
-  for (let i = 0, n = Math.floor(rnd() * 4); i < n; i++) income.push({ name: 'Inc' + i, amount: Math.round(rnd() * 3000), freq: pick(FREQS), next: date(-10, 90), end: rnd() > 0.5 ? date(30, 400) : '' });
+  for (let i = 0, n = Math.floor(rnd() * 4); i < n; i++) income.push({ name: 'Inc' + i, amount: Math.round(rnd() * 3000), freq: pick(FREQS), next: date(-10, 90), end: rnd() > 0.5 ? date(30, 400) : '', ...(rnd() > 0.6 ? { remaining: Math.round(rnd() * 15000), gross: Math.round(100 + rnd() * 600) } : {}) });
   return C.normalizeState({ accounts, bills, income, settings: { cushion: pick([0, 0, 500, 2000]), creditCap: pick([30, 80, 100]), targetMonths: pick([3, 12, 24]) } }).state;
 }
 

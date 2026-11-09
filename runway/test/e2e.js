@@ -231,6 +231,56 @@ async function run(name, fn) {
     await ctx.close();
   });
 
+  await run('check-in marks what already happened as done, except what you switch off', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    const day = n => { const t = new Date(); t.setDate(t.getDate() + n); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'runway-')), 'state.json');
+    fs.writeFileSync(f, JSON.stringify({
+      accounts: [{ id: 'a', name: 'Checking', balance: 5000 }],
+      bills: [{ id: 'g', name: 'Groceries', amount: 400, freq: 'weekly', next: day(-10) }, { id: 'w', name: 'Water', amount: 35, freq: 'monthly', next: day(-1) }],
+      income: [{ id: 'u', name: 'Unemployment', amount: 425, freq: 'weekly', next: day(-3), remaining: 1416, gross: 472 }]
+    }));
+    await p.setInputFiles('#importFile', f);
+    await p.waitForSelector('#alertDlg[open]'); await p.click('#alertDlg [data-ok]');
+    await p.waitForSelector('.hero-main');
+    await p.click('[data-action=checkin] >> nth=0');
+    assert.match(await p.locator('#dlg').innerText(), /Already Happened/i);
+    assert.match(await p.locator('#dlg').innerText(), /2 times since/);
+    await p.locator('dialog [name=done_bill_w]').uncheck();               // water hasn't gone through yet
+    await p.click('dialog button.primary');
+    const st = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), 'runway-tracker.v1');
+    const g = st.bills.find(b => b.id === 'g'), w = st.bills.find(b => b.id === 'w'), u = st.income.find(i => i.id === 'u');
+    assert.equal(g.next, day(4), 'groceries moved past both missed weeks');
+    assert.equal(w.next, day(-1), 'water left as is');
+    assert.equal(u.next, day(4));
+    assert.equal(u.remaining, 944, 'benefit balance counted down');
+    assert.equal(st.activity.filter(a => a.account === 'Settled at check-in').length, 3);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('benefit balance sets the end date in the income sheet', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    await p.click('[data-tab=income]');
+    await p.locator('#app .list-row[data-kind=income]').first().click();
+    await p.fill('dialog [name=end]', '');
+    await p.fill('dialog [name=remaining]', '1200');
+    await p.fill('dialog [name=gross]', '100');
+    await p.click('dialog button.primary');
+    assert.match(await p.locator('.form-error').innerText(), /can’t be less/);
+    await p.fill('dialog [name=gross]', '600');
+    await p.click('dialog button.primary');
+    assert.match(await p.locator('#app').innerText(), /2 payments left of \$1,200/);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
   await run('phone width has no sideways scroll', async () => {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
     const p = await ctx.newPage();

@@ -75,12 +75,34 @@
     return k === 0 ? base : null;
   }
 
+  /**
+   * Benefits that run out: when an income has `remaining` (balance left,
+   * before tax) and `gross` (amount per payment, before tax), it stops after
+   * the last full payment that balance covers. Returns that date, or null.
+   */
+  function benefitEnd(item) {
+    if (!item || !(item.remaining > 0) || !(item.gross > 0) || !isISODate(item.next)) return null;
+    const n = Math.floor(item.remaining / item.gross + 1e-9);
+    if (n <= 0) return iso(addDays(parse(item.next), -1));
+    const last = nthOccurrence(parse(item.next), item.freq, n - 1, item.anchorDay);
+    return last ? iso(last) : null;
+  }
+  /** The effective last date: the earlier of the end date and the benefit end. */
+  function endOf(item) {
+    const b = benefitEnd(item), e = item && isISODate(item.end) ? item.end : null;
+    if (b && e) return b < e ? b : e;
+    return b || e;
+  }
+  /** Payments left on a benefit, or null when it doesn't run out. */
+  const paymentsLeft = item => (item && item.remaining > 0 && item.gross > 0 ? Math.floor(item.remaining / item.gross + 1e-9) : null);
+
   /** All dates of an item from its `next` date up to and including `to`, stopping at `end`. */
   function occurrences(item, to) {
     const out = [];
     if (!item || !isISODate(item.next)) return out;
     const base = parse(item.next);
-    const end = isISODate(item.end) ? parse(item.end) : null;
+    const endIso = endOf(item);
+    const end = endIso ? parse(endIso) : null;
     for (let k = 0; k < MAX_OCCURRENCES; k++) {
       const d = nthOccurrence(base, item.freq, k, item.anchorDay);
       if (!d || d > to) break;
@@ -95,11 +117,12 @@
     if (!item || item.freq === 'once' || !isISODate(item.next)) return null;
     const n = nthOccurrence(parse(item.next), item.freq, 1, item.anchorDay);
     if (!n) return null;
-    if (isISODate(item.end) && n > parse(item.end)) return null;
+    const e = endOf(item);
+    if (e && n > parse(e)) return null;
     return iso(n);
   }
 
-  const isActive = (item, today) => !isISODate(item.end) || parse(item.end) >= startOfDay(today);
+  const isActive = (item, today) => { const e = endOf(item); return !e || parse(e) >= startOfDay(today); };
 
   /* ---------- money ---------- */
   const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -122,7 +145,7 @@
       income: [],
       checkins: [],
       activity: [],
-      settings: { cushion: 0, targetMonths: 12, horizon: 24, lastExport: '', creditCap: 80 }
+      settings: { cushion: 0, targetMonths: 12, horizon: 24, lastExport: '', creditCap: 80, creditStrategy: 'late' }
     };
   }
 
@@ -198,6 +221,10 @@
         };
         if (rec.anchorDay === undefined) delete rec.anchorDay;
         if (isBill) { rec.category = str(it.category, 40) || 'Other'; rec.essential = it.essential !== false; rec.card = it.card === true; }
+        else {
+          const remaining = finite(it.remaining, 0), gross = finite(it.gross, 0);
+          if (remaining > 0 && gross > 0) { rec.remaining = round2(Math.min(MAX_AMOUNT, remaining)); rec.gross = round2(Math.min(MAX_AMOUNT, gross)); }
+        }
         out.push(rec);
       }
       return out;
@@ -223,6 +250,9 @@
     s.settings.horizon = [12, 24, 36].includes(+st.horizon) ? +st.horizon : 24;
     s.settings.lastExport = isISODate(st.lastExport) ? st.lastExport : '';
     s.settings.creditCap = clampInt(st.creditCap, 10, 100, 80);
+    // 'late': cards cover bills only once cash would otherwise run short (cheapest).
+    // 'now': card-eligible bills go on the card from today and the balance is carried.
+    s.settings.creditStrategy = st.creditStrategy === 'now' ? 'now' : 'late';
 
     return { state: s, warnings };
   }
@@ -321,6 +351,13 @@
    * possible to keep interest down: binary-search the latest start day whose
    * runway still matches the best runway (charging from day 0).
    */
+  /** The credit projection for the household's chosen strategy. */
+  function creditProjection(s, opts = {}, today = new Date()) {
+    return s.settings && s.settings.creditStrategy === 'now'
+      ? simulate(s, { ...opts, useCredit: true, creditFrom: 0 }, today)
+      : planCredit(s, opts, today);
+  }
+
   function planCredit(s, opts = {}, today = new Date()) {
     const run = from => simulate(s, { ...opts, useCredit: true, creditFrom: from }, today);
     const best = run(0);
@@ -364,8 +401,8 @@
   return {
     SCHEMA_VERSION, DAY, MONTH, MAX_DAYS, MAX_ACTIVITY, FREQ,
     pad, iso, isISODate, parse, startOfDay, addDays, addMonths, daysBetween,
-    nthOccurrence, occurrences, nextAfter, isActive,
+    nthOccurrence, occurrences, nextAfter, isActive, benefitEnd, endOf, paymentsLeft,
     round2, finite, uid, blank, normalizeState,
-    MAX_CHECKINS, cashTotal, creditSummary, minimumPayment, monthlyMinimums, monthlyOf, simulate, planCredit, gapFor, upcoming
+    MAX_CHECKINS, cashTotal, creditSummary, minimumPayment, monthlyMinimums, monthlyOf, simulate, planCredit, creditProjection, gapFor, upcoming
   };
 });

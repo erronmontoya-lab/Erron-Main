@@ -128,7 +128,7 @@ test('normalizeState repairs and reports bad data', () => {
   assert.equal(s.bills[1].anchorDay, 30);
   assert.deepEqual(s.income, []);
   assert.deepEqual(s.checkins, [{ date: '2026-11-01', total: 6 }]);
-  assert.deepEqual(s.settings, { cushion: 0, targetMonths: 60, horizon: 24, lastExport: '', creditCap: 80 });
+  assert.deepEqual(s.settings, { cushion: 0, targetMonths: 60, horizon: 24, lastExport: '', creditCap: 80, creditStrategy: 'late' });
   assert.ok(warnings.length >= 6, warnings.join('\n'));
 });
 
@@ -290,4 +290,36 @@ test('every-6-months bills keep their day and skip leap-year traps', () => {
   const got = C.occurrences({ next: '2027-02-05', freq: 'semiannual', anchorDay: 5 }, C.parse('2028-08-31')).map(C.iso);
   assert.deepEqual(got, ['2027-02-05', '2027-08-05', '2028-02-05', '2028-08-05']);
   assert.equal(C.nextAfter({ next: '2027-08-31', freq: 'semiannual', anchorDay: 31 }), '2028-02-29');
+});
+
+test('benefits stop after the last full payment the remaining balance covers', () => {
+  const ui = { name: 'UI', amount: 425, freq: 'weekly', next: '2026-11-11', remaining: 11472, gross: 472 };
+  assert.equal(C.paymentsLeft(ui), 24);
+  assert.equal(C.benefitEnd(ui), '2027-04-21');
+  assert.equal(C.occurrences(ui, C.parse('2028-01-01')).length, 24);
+  // after one payment is received the end date doesn't move
+  assert.equal(C.benefitEnd({ ...ui, next: '2026-11-18', remaining: 11000 }), '2027-04-21');
+  // an explicit earlier end date still wins
+  assert.equal(C.endOf({ ...ui, end: '2027-01-06' }), '2027-01-06');
+  // nothing left: no more payments, and the income counts as ended
+  const done = { ...ui, remaining: 300 };
+  assert.equal(C.occurrences(done, C.parse('2028-01-01')).length, 0);
+  assert.equal(C.isActive(done, C.parse('2026-11-11')), false);
+  // normalize keeps both fields only together
+  const n = C.normalizeState({ income: [ui, { ...ui, gross: 0 }] }).state.income;
+  assert.deepEqual([n[0].remaining, n[0].gross, n[1].remaining], [11472, 472, undefined]);
+});
+
+test('credit strategy: carrying from now reaches the same runway but costs more interest', () => {
+  const base = {
+    accounts: [{ id: 'a', name: 'Checking', balance: 6000 }, { id: 'c', name: 'Card', type: 'credit', balance: 0, limit: 20000, apr: 24 }],
+    bills: [{ name: 'Rent', amount: 1000, freq: 'monthly', next: '2026-12-01' }, { name: 'Groceries', amount: 600, freq: 'monthly', next: '2026-11-15', card: true }]
+  };
+  const late = C.normalizeState({ ...base, settings: { creditStrategy: 'late' } }).state;
+  const now = C.normalizeState({ ...base, settings: { creditStrategy: 'now' } }).state;
+  const a = C.creditProjection(late, { days: 730 }, TODAY), b = C.creditProjection(now, { days: 730 }, TODAY);
+  assert.equal(a.out, b.out);
+  assert.equal(b.creditFrom, 0);
+  assert.ok(b.interest > a.interest);
+  assert.equal(C.normalizeState({ settings: { creditStrategy: 'weird' } }).state.settings.creditStrategy, 'late');
 });
