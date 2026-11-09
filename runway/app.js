@@ -978,7 +978,7 @@ function validateFlow(fd) {
   return { ok: { name, amount, freq: fd.freq, next: fd.next, end } };
 }
 function anchorFor(prev, next, freq) {
-  if (!['monthly', 'quarterly', 'annual'].includes(freq)) return undefined;
+  if (!['monthly', 'quarterly', 'semiannual', 'annual'].includes(freq)) return undefined;
   if (prev && prev.next === next && prev.freq === freq && prev.anchorDay) return prev.anchorDay;
   return parse(next).getDate();
 }

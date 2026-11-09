@@ -62,10 +62,11 @@
     biweekly:  { label: 'Every 2 weeks', perMonth: 26 / 12 },
     monthly:   { label: 'Monthly',       perMonth: 1 },
     quarterly: { label: 'Quarterly',     perMonth: 1 / 3 },
+    semiannual: { label: 'Every 6 months', perMonth: 1 / 6 },
     annual:    { label: 'Yearly',        perMonth: 1 / 12 },
     once:      { label: 'One time',      perMonth: 0 }
   };
-  const MONTH_BASED = { monthly: 1, quarterly: 3, annual: 12 };
+  const MONTH_BASED = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
 
   function nthOccurrence(base, freq, k, anchorDay) {
     if (freq === 'weekly') return addDays(base, 7 * k);

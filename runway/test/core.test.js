@@ -285,3 +285,9 @@ test('long histories and huge lists are trimmed to keep the synced copy small', 
   assert.equal(s.bills.length, 500);
   assert.ok(warnings.some(w => /first 500 bills/.test(w)));
 });
+
+test('every-6-months bills keep their day and skip leap-year traps', () => {
+  const got = C.occurrences({ next: '2027-02-05', freq: 'semiannual', anchorDay: 5 }, C.parse('2028-08-31')).map(C.iso);
+  assert.deepEqual(got, ['2027-02-05', '2027-08-05', '2028-02-05', '2028-08-05']);
+  assert.equal(C.nextAfter({ next: '2027-08-31', freq: 'semiannual', anchorDay: 31 }), '2028-02-29');
+});
