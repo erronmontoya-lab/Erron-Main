@@ -8,6 +8,7 @@ A personal finance tracker for when you're between jobs. It shows your bills, th
 
 - **Sync:** your data is stored privately under your Claude account and syncs to every device where you open the page. Nobody else who has the link can see your data.
 - **Home screen:** on iPhone or iPad, open the page in Safari, tap Share, then Add to Home Screen. On Android, use Chrome's menu, then Add to Home screen.
+- **Sharing with your household:** in the page's Share menu, invite someone by email as an **Editor**. They need a claude.ai account and must be signed in. Editors see and change the same household data, and updates show who made them. Anyone with lower access (Viewer, Commenter, Contributor) or arriving by a public link sees no financial data, and giving the page a public link removes outside Editors' access, so don't create one.
 - **Status:** the sidebar (and the date line at the top) shows Synced, Syncing…, or Offline · saved here. Changes made offline sync when the connection returns.
 - **Conflicts:** the most recent change wins. If this device had unsynced changes when a newer copy arrived, they are kept as a snapshot you can restore from Settings.
 

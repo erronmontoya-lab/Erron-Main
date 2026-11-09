@@ -18,6 +18,7 @@ async function run(name, fn) {
 
 /* The fake platform, injected before the app loads. */
 const MOCK = () => {
+  const me = window.__who || { id: 'u_test', editor: true };
   const subs = [];
   window.__cloudNotify = json => { const body = json ? JSON.parse(json) : null; subs.forEach(fn => fn(body)); };
   const snap = body => ({ id: 'runway', exists: !!body, data: () => body || undefined, metadata: { fromCache: false, hasPendingWrites: false } });
@@ -32,8 +33,14 @@ const MOCK = () => {
       return () => {};
     }
   };
-  const db = { doc: p => { if (p !== 'data/users/u_test/runway') throw new TypeError('bad path ' + p); return ref; } };
-  const user = { id: async () => 'u_test' };
+  const privateRef = { get: async () => { const j = await window.__privateGet(me.id); return { exists: !!j, data: () => (j ? JSON.parse(j) : undefined), metadata: { fromCache: false, hasPendingWrites: false } }; } };
+  const db = { doc: p => {
+    if (p === 'household/runway') { if (!me.editor) throw new Error('page must not touch the household record without edit access'); return ref; }
+    if (p === `data/users/${me.id}/runway`) return privateRef;
+    throw new TypeError('bad path ' + p);
+  } };
+  const names = { u_test: 'Erron', u_wife: 'Jordan' };
+  const user = { id: async () => me.id, canEdit: async () => me.editor, profiles: async ids => Object.fromEntries(ids.map(i => [i, { id: i, name: names[i] || '' }])) };
   window.claude = { use: name => Promise.resolve(name === 'db' ? db : name === 'user' ? user : null) };
 };
 
@@ -41,9 +48,12 @@ const MOCK = () => {
   const browser = await chromium.launch();
   let cloud = null;                     // the shared store: one JSON body
   const pages = new Set();
-  const device = async () => {
+  const privateDocs = {};
+  const device = async (who) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const errors = [];
+    if (who) await ctx.addInitScript(w => { window.__who = w; }, who);
+    await ctx.exposeFunction('__privateGet', id => privateDocs[id] || null);
     await ctx.exposeFunction('__cloudGet', () => cloud);
     await ctx.exposeFunction('__cloudSet', async json => {
       cloud = json;
@@ -134,6 +144,40 @@ const MOCK = () => {
     await B.p.click('#alertDlg [data-r="0"]');                            // Cancel
     await B.p.waitForTimeout(900);
     assert.equal(stored().state.bills.length, 11, 'cancel changed nothing');
+  });
+
+  await run('a change by your wife shows who made it', async () => {
+    const W = await device({ id: 'u_wife', editor: true });
+    await W.p.goto(URL);
+    await waitStatus(W.p, 'Synced');
+    await W.p.click('[data-tab=bills]');
+    await W.p.locator('#app .list-row[data-kind=bill]').first().click(); await W.p.click('dialog [data-action=del]');
+    await W.p.waitForTimeout(1200);
+    assert.equal(stored().by, 'u_wife');
+    await A.p.waitForFunction(() => /Updated by Jordan/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 });
+    await W.ctx.close();
+  });
+
+  await run('someone without edit access never sees the household data', async () => {
+    const V = await device({ id: 'u_viewer', editor: false });
+    await V.p.goto(URL);
+    await waitStatus(V.p, 'Not shared with you');
+    assert.match(await V.p.locator('#banners').innerText(), /isn’t shared with you/);
+    assert.ok(await V.p.locator('.welcome').isVisible(), 'empty local tracker, no household data');
+    assert.deepEqual(V.errors, []);
+    await V.ctx.close();
+  });
+
+  await run('data saved privately before sharing moves into the household record', async () => {
+    await A.ctx.close(); await B.ctx.close();             // other household devices hold newer data and would rightly win
+    cloud = null;
+    privateDocs.u_new = JSON.stringify({ v: 1, updatedAt: 1000, device: 'old', state: { accounts: [{ name: 'Old savings', balance: 777 }], bills: [], income: [] } });
+    const N = await device({ id: 'u_new', editor: true });
+    await N.p.goto(URL);
+    await N.p.waitForSelector('.hero-main', { timeout: 5000 });
+    await N.p.waitForTimeout(1200);
+    assert.equal(stored().state.accounts[0].name, 'Old savings');
+    await N.ctx.close();
   });
 
   await browser.close();

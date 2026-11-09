@@ -327,6 +327,7 @@ function renderShell() {
 function renderBanners() {
   const el = document.getElementById('banners');
   const items = [];
+  if (sync.status === 'noaccess') items.push(['orange', '<b>This tracker isn’t shared with you yet.</b> Ask the owner to invite you as an Editor from the Share menu, then reload. Anything you enter now stays on this device only.', '']);
   if (sync.status === 'error') items.push(['red', `<b>Sync paused.</b> ${esc(sync.detail || 'Your changes are saved on this device and will sync when possible.')}`, '']);
   if (!storage.ok && !['synced', 'saving', 'connecting'].includes(sync.status)) items.push(['red', `<b>Changes are not being saved.</b> ${esc(storage.msg)} Export a backup now so you don't lose your work.`, `<button class="btn sm tinted" data-action="export">Export</button>`]);
   loadNotices.forEach((n, i) => items.push([n[0] === 'critical' ? 'red' : 'orange', n[1], `<button class="btn sm" data-action="dismiss-notice" data-i="${i}">Dismiss</button>`]));
@@ -738,7 +739,8 @@ function settingsView() {
   const syncFoot = {
     local: 'Your data is saved in this browser only. Open Runway from its claude.ai link to sync it across your devices.',
     signedout: 'Sign in to claude.ai to sync your data across devices.',
-  }[sync.status] || 'Your data syncs privately through your Claude account. Open this page on any device where you’re signed in and it’s all there. Nobody else who opens the link can see it.';
+    noaccess: 'You can open this page, but the shared household tracker is only visible to people with edit access. Ask the owner to invite you as an Editor from the Share menu. Anything you enter here stays on this device.',
+  }[sync.status] || 'Your household’s data syncs to everyone with edit access: the owner, plus anyone invited as an Editor from the Share menu. Viewers and public links never see it. Changes from either of you appear on every device within seconds.';
   return `<div style="max-width:720px;width:100%;margin:0 auto">
     <div class="sect"><span>Sync</span></div>
     <div class="group">
@@ -1273,7 +1275,13 @@ async function startSync() {
   setSync('connecting');
   const id = await user.id();
   if (!id) { setSync('signedout'); return; }
-  try { sync.ref = db.doc(`data/users/${id}/runway`); }
+  sync.user = user; sync.uid = id;
+  /* One shared household record. The page's access rules let only people
+     with edit access (the owner, and anyone invited as an Editor) read or
+     write it; everyone else gets a local-only tracker. */
+  if (!(await user.canEdit())) { setSync('noaccess'); return; }
+  sync.privateRef = db.doc(`data/users/${id}/runway`);
+  try { sync.ref = db.doc('household/runway'); }
   catch (e) { setSync('error', 'Sync could not start. Your data is saved on this device.'); return; }
   sync.loadTimer = setTimeout(() => { if (sync.status === 'connecting') setSync('offline'); }, 10000);
   sync.unsub = sync.ref.onSnapshot(onRemote, err => {
@@ -1293,7 +1301,8 @@ function onRemote(snap) {
 
   if (!snap.exists) {
     if (!definitive) return;
-    if (hasData(S)) pushNow(); else setSync('synced');   // first device: upload what is here
+    if (hasData(S)) { pushNow(); return; }                // first device: upload what is here
+    migratePrivate();                                     // or bring over the owner's earlier private copy
     return;
   }
   const body = snap.data() || {};
@@ -1306,12 +1315,25 @@ function onRemote(snap) {
     if (definitive || sync.status === 'connecting') setSync('synced');
     return;
   }
-  if (ru >= localUpdatedAt || !hasData(S)) adoptRemote(remote, ru, body.device, first);
+  if (ru >= localUpdatedAt || !hasData(S)) adoptRemote(remote, ru, body.device, first, body.by);
   else if (definitive) pushNow();                       // this device has the newer change
 }
 
-function adoptRemote(remote, ru, device, quiet) {
-  if (dlg.open || alertDlg.open) { sync.pending = { remote, ru, device }; return; }
+/* Before sharing existed, data lived in the person's private subtree. */
+async function migratePrivate() {
+  try {
+    const old = sync.privateRef && await sync.privateRef.get();
+    const body = old && old.exists ? old.data() : null;
+    if (body && body.state) {
+      const st = C.normalizeState(body.state).state;
+      if (hasData(st)) { adoptRemote(st, finite(body.updatedAt, Date.now()), body.device, true, body.by); pushNow(); return; }
+    }
+  } catch (e) {}
+  setSync('synced');
+}
+
+function adoptRemote(remote, ru, device, quiet, by) {
+  if (dlg.open || alertDlg.open) { sync.pending = { remote, ru, device, by }; return; }
   if (hasData(S) && localUpdatedAt > syncedAt) snapshot('Before sync', S);
   applyingRemote = true;
   S = remote;
@@ -1320,7 +1342,14 @@ function adoptRemote(remote, ru, device, quiet) {
   render();
   applyingRemote = false;
   setSync('synced');
-  if (!quiet && device !== DEVICE) toast('Updated from your other device');
+  if (!quiet && device !== DEVICE) announceChange(by);
+}
+async function announceChange(by) {
+  if (by && sync.user && by !== sync.uid) {
+    let name = '';
+    try { const ps = await sync.user.profiles([by]); name = (ps[by] && ps[by].name) || ''; } catch (e) {}
+    toast(name ? `Updated by ${name}` : 'Updated by someone you share with');
+  } else toast('Updated from your other device');
 }
 
 function scheduleCloudPush() {
@@ -1338,7 +1367,7 @@ async function pushNow() {
   setSync('saving');
   if (localUpdatedAt < 10) { localUpdatedAt = Date.now(); setStamp('updatedAt', localUpdatedAt); }
   const stamp = localUpdatedAt;
-  const body = { v: 1, updatedAt: stamp, device: DEVICE, state: JSON.parse(JSON.stringify(S)) };
+  const body = { v: 1, updatedAt: stamp, device: DEVICE, by: sync.uid || null, state: JSON.parse(JSON.stringify(S)) };
   const kb = Math.round(JSON.stringify(body).length / 1024);
   if (kb > 240) {
     sync.writing = false;
@@ -1374,13 +1403,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) retr
 const applyPending = () => {
   if (!sync.pending || dlg.open || alertDlg.open) return;
   const p = sync.pending; sync.pending = null;
-  if (p.ru >= localUpdatedAt) adoptRemote(p.remote, p.ru, p.device, false); else retryPush();
+  if (p.ru >= localUpdatedAt) adoptRemote(p.remote, p.ru, p.device, false, p.by); else retryPush();
 };
 dlg.addEventListener('close', () => setTimeout(applyPending, 0));
 alertDlg.addEventListener('close', () => setTimeout(applyPending, 0));
 
 const SYNC_TEXT = {
   local:      ['lock', 'var(--label-3)', 'On this device only'],
+  noaccess:   ['lock', 'var(--orange)', 'Not shared with you'],
   signedout:  ['cloudoff', 'var(--orange)', 'Sign in to sync'],
   connecting: ['cloud', 'var(--label-3)', 'Connecting…'],
   saving:     ['cloud', 'var(--label-2)', 'Syncing…'],
@@ -1435,12 +1465,12 @@ document.addEventListener('click', e => {
     case 'range': ui.range = +el.dataset.m; render(); break;
     case 'sample': (async () => {
       const had = hasData(S);
-      if (had && !await askConfirm({ title: 'Load Sample Data?', message: 'This replaces your data on every synced device. A snapshot of your data is saved on this device first.', ok: 'Replace', destructive: true })) return;
+      if (had && !await askConfirm({ title: 'Load Sample Data?', message: 'This replaces your data on every synced device, including anyone you share with. A snapshot of your data is saved on this device first.', ok: 'Replace', destructive: true })) return;
       snapshot('Before sample data', S);
       commit(had ? 'Sample data loaded' : '', () => { S = sampleState(); ui.view = 'overview'; });
     })(); break;
     case 'reset': (async () => {
-      if (!await askConfirm({ title: 'Erase All Data?', message: 'Accounts, bills, income and history will be erased on every synced device. A snapshot is saved on this device first.', ok: 'Erase', destructive: true })) return;
+      if (!await askConfirm({ title: 'Erase All Data?', message: 'Accounts, bills, income and history will be erased on every synced device, including anyone you share with. A snapshot is saved on this device first.', ok: 'Erase', destructive: true })) return;
       snapshot('Before erase', S);
       commit('All data erased', () => { S = C.blank(); ui.view = 'overview'; });
     })(); break;
