@@ -442,7 +442,7 @@ function attentionItems() {
   if (S.accounts.length && (!lastCk || daysBetween(parse(lastCk.date), t0) > 10))
     A.push(['checkin', 'blue', 'Update Your Balances', lastCk ? `Last check-in was ${daysBetween(parse(lastCk.date), t0)} days ago` : 'No check-ins yet', `<button class="btn xs tinted" data-action="checkin">Check In</button>`]);
   const le = S.settings.lastExport, since = le ? daysBetween(parse(le), t0) : null;
-  if (since === null || since > 14)
+  if (!['synced', 'saving', 'connecting'].includes(sync.status) && (since === null || since > 14))
     A.push(['shield', 'gray', 'Back Up Your Data', since === null ? 'No backup exported yet' : `Last backup was ${since} days ago`, `<button class="btn xs tinted" data-action="export">Export</button>`]);
   return A;
 }
@@ -481,7 +481,8 @@ function upcomingHTML() {
   const groups = [['Overdue', e => e.overdue], ['Next 7 Days', e => !e.overdue && daysBetween(t0, e.date) < 7], ['Later This Month', e => !e.overdue && daysBetween(t0, e.date) >= 7]];
   const row = e => {
     const isNext = parse(e.item.next).getTime() === e.date.getTime();
-    return `<div class="list-row has-tile">
+    const tag = isNext ? `button type="button" class="list-row has-tile" data-action="settle" data-kind="${e.kind}" data-id="${esc(e.item.id)}"` : 'div class="list-row has-tile"';
+    return `<${tag}>
       <div class="cal ${e.overdue ? 'over' : ''}"><div class="m">${e.date.toLocaleDateString(undefined, { month: 'short' })}</div><div class="d">${e.date.getDate()}</div></div>
       <div class="body">
         <div class="t">${esc(e.item.name)}${e.overdue ? `<span class="tag red">${e.kind === 'bill' ? 'Overdue' : 'Confirm'}</span>` : ''}</div>
@@ -489,18 +490,15 @@ function upcomingHTML() {
       </div>
       <div class="end">
         <div class="amt ${e.amount > 0 ? 'in' : ''}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(e.amount), true)}</div>
-        ${isNext ? `<div class="tools">
-          <button class="btn xs tinted" data-action="settle" data-kind="${e.kind}" data-id="${esc(e.item.id)}">${e.kind === 'bill' ? 'Paid' : 'Received'}</button>
-          <button class="btn round xs" data-action="skip" data-kind="${e.kind}" data-id="${esc(e.item.id)}" aria-label="Skip to next date" title="Skip to next date" style="color:var(--label-2)">${ic('skip')}</button>
-        </div>` : ''}
       </div>
-    </div>`;
+      ${isNext ? ic('chevron', 'chev') : '<span class="chev-space"></span>'}
+    </${isNext ? 'button' : 'div'}>`;
   };
   const out = ev.reduce((t, e) => t + (e.amount < 0 ? -e.amount : 0), 0);
   const inn = ev.reduce((t, e) => t + (e.amount > 0 ? e.amount : 0), 0);
   return `<section>
     <div class="card pad" style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:16px">
-      <div><h2 style="font-size:17px;font-weight:600">Next 30 Days</h2><div class="foot13">${ev.length} item${ev.length === 1 ? '' : 's'}</div></div>
+      <div><h2 style="font-size:17px;font-weight:600">Next 30 Days</h2><div class="foot13">${ev.length} item${ev.length === 1 ? '' : 's'} · tap one to mark it done</div></div>
       <div style="display:flex;gap:22px;text-align:right">
         <div><div class="foot13">Out</div><div class="rounded num" style="font-size:20px;font-weight:700">${money(out)}</div></div>
         <div><div class="foot13">In</div><div class="rounded num in" style="font-size:20px;font-weight:700">${money(inn)}</div></div>
@@ -509,7 +507,7 @@ function upcomingHTML() {
     ${ev.length ? groups.map(([label, f]) => {
         const g = ev.filter(f);
         if (!g.length) return '';
-        const LIMIT = 6, cap = label === 'Later This Month' && g.length > LIMIT + 1;
+        const LIMIT = 10, cap = label === 'Later This Month' && g.length > LIMIT + 1;
         const shown = cap && !ui.showAllUpcoming ? g.slice(0, LIMIT) : g;
         const more = cap ? `<div class="list-row action-row" data-action="toggle-upcoming" role="button" tabindex="0">${ui.showAllUpcoming ? 'Show Less' : `Show All ${g.length}`}</div>` : '';
         return `<div class="sect"><span>${label}</span><span>${g.length}</span></div><div class="group" style="margin-bottom:24px">${shown.map(row).join('')}${more}</div>`;
@@ -830,6 +828,10 @@ function drawChart(all, ess, range) {
   for (let d = 0; d <= days; d++) { lo = Math.min(lo, all.bal[d], ess.bal[d]); hi = Math.max(hi, all.bal[d], ess.bal[d]); }
   cks.forEach(c => { lo = Math.min(lo, c.v); hi = Math.max(hi, c.v); });
   if (hi - lo < 1) hi = lo + 1000;
+  // Past the run-out date the lines keep falling; don't let that squeeze
+  // the months that matter. Show at most ~30% of the height below $0.
+  const floor = -Math.max(hi * 0.3, S.settings.cushion, 2000);
+  if (lo < floor) lo = floor;
   const step = niceStep(hi - lo, 4);
   lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
 
@@ -849,18 +851,31 @@ function drawChart(all, ess, range) {
   let mt = new Date(startD.getFullYear(), startD.getMonth() + 1, 1), idx = 0;
   while (daysBetween(t0, mt) <= days && idx < 600) {
     if (idx % every === 0) {
-      const lab = mt.getMonth() === 0 || idx === 0 ? mt.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) : mt.toLocaleDateString(undefined, { month: 'short' });
+      const mon = mt.toLocaleDateString(undefined, { month: 'short' });
+      const lab = mt.getMonth() === 0 || idx === 0 ? `${mon} ’${String(mt.getFullYear()).slice(2)}` : mon;
       g += `<text x="${x(daysBetween(t0, mt))}" y="${Hh - 8}" text-anchor="middle" font-size="11" fill="rgba(235,235,245,.5)">${lab}</text>`;
     }
     mt = new Date(mt.getFullYear(), mt.getMonth() + 1, 1); idx++;
   }
+  const plotW = W - M.l - M.r, plotH = Hh - M.t - M.b;
+  g += `<defs><clipPath id="plotClip"><rect x="${M.l}" y="${M.t - 6}" width="${plotW}" height="${plotH + 6}"/></clipPath>
+        <clipPath id="aboveZero"><rect x="${M.l}" y="${M.t - 6}" width="${plotW}" height="${Math.max(0, y(0) - M.t + 6)}"/></clipPath></defs>`;
+  if (lo < 0) g += `<rect x="${M.l}" y="${y(0)}" width="${plotW}" height="${Hh - M.b - y(0)}" fill="rgba(255,69,58,.07)"/><text x="${W - M.r - 6}" y="${Hh - M.b - 8}" text-anchor="end" font-size="11" font-weight="600" fill="rgba(255,105,97,.7)">Short of cash</text>`;
   if (lo <= 0 && hi >= 0) g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)" stroke-width="1"/>`;
   if (S.settings.cushion) g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(S.settings.cushion)}" y2="${y(S.settings.cushion)}" stroke="rgba(235,235,245,.4)" stroke-width="1.25" stroke-dasharray="4 4"/>`;
   if (dMin < 0) g += `<line x1="${x(0)}" x2="${x(0)}" y1="${M.t}" y2="${Hh - M.b}" stroke="var(--axis)" stroke-dasharray="2 3"/><text x="${x(0) + 6}" y="${M.t + 2}" font-size="11" font-weight="600" fill="rgba(235,235,245,.6)">Today</text>`;
 
-  g += `<path d="${path(all.bal)}L${x(days).toFixed(1)} ${base}L${x(0).toFixed(1)} ${base}Z" fill="url(#areaFill)"/>`;
-  g += `<path d="${path(ess.bal)}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>`;
-  g += `<path d="${path(all.bal)}" fill="none" stroke="var(--s1)" stroke-width="2.25" stroke-linejoin="round"/>`;
+  const seg = (bal, a, b) => { let p = ''; for (let d = a; d <= b; d++) p += (d === a ? 'M' : 'L') + x(d).toFixed(1) + ' ' + y(bal[d]).toFixed(1); return p; };
+  const line = (sim, color, width) => {
+    const cut = sim.out < 0 || sim.out > days ? days : sim.out;
+    let out = `<path d="${seg(sim.bal, 0, cut)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linejoin="round"/>`;
+    if (cut < days) out += `<path d="${seg(sim.bal, cut, days)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linejoin="round" stroke-opacity=".28" stroke-dasharray="3 4"/>`;
+    return out;
+  };
+  g += `<g clip-path="url(#plotClip)">`;
+  g += `<path clip-path="url(#aboveZero)" d="${path(all.bal)}L${x(days).toFixed(1)} ${base}L${x(0).toFixed(1)} ${base}Z" fill="url(#areaFill)"/>`;
+  g += line(ess, 'var(--s2)', 2) + line(all, 'var(--s1)', 2.25);
+  g += `</g>`;
   if (cks.length) {
     const pts = [...cks].sort((a, b) => a.d - b.d);
     if (pts.length > 1) g += `<path d="${pts.map((p, i) => (i ? 'L' : 'M') + x(p.d) + ' ' + y(p.v)).join('')}" fill="none" stroke="var(--s3)" stroke-width="2"/>`;
@@ -879,7 +894,8 @@ function drawChart(all, ess, range) {
   g += mark(all, 'var(--s1)', false);
   if (ess.out !== all.out) g += mark(ess, 'var(--s2)', true);
   if (M.r > 40) {
-    let ya = y(all.bal[days]), ye = y(ess.bal[days]);
+    const cy = v => Math.max(M.t + 8, Math.min(Hh - M.b - 4, y(v)));
+    let ya = cy(all.bal[days]), ye = cy(ess.bal[days]);
     if (Math.abs(ya - ye) < 28) { const mid = (ya + ye) / 2, s = ya <= ye ? -1 : 1; ya = mid + s * 14; ye = mid - s * 14; }
     g += `<text x="${W - M.r + 10}" y="${ya - 2}" font-size="11" fill="rgba(235,235,245,.55)">All bills</text><text x="${W - M.r + 10}" y="${ya + 12}" font-size="12" font-weight="600" fill="#fff">${compact(all.bal[days])}</text>`;
     g += `<text x="${W - M.r + 10}" y="${ye - 2}" font-size="11" fill="rgba(235,235,245,.55)">Essentials</text><text x="${W - M.r + 10}" y="${ye + 12}" font-size="12" font-weight="600" fill="#fff">${compact(ess.bal[days])}</text>`;
@@ -1161,6 +1177,8 @@ function settle(kind, id) {
           frow('Date', `<input type="date" name="date" value="${iso(today())}">`),
           ...(accs.length ? [frow(kind === 'bill' ? 'Paid From' : 'Deposit To', `<select name="acc">${accs.map(a => `<option value="${esc(a.id)}">${esc(a.name)}${a.type === 'credit' ? ' (card)' : ''}</option>`).join('')}<option value="">None</option></select>`)] : []))}
     ${note(nxt ? `Next date moves to ${fmtDate(parse(nxt))}.` : 'This was the last one, so it will be removed.')}
+    ${gap}${grp(`<button type="button" class="list-row action-row" data-action="skip" data-kind="${kind}" data-id="${esc(item.id)}">Skip This Time</button>`)}
+    ${note('Skip moves it to the next date without changing any balance, for a bill that was waived or a payment that won’t come.')}
   `, kind === 'bill' ? 'Paid' : 'Done', fd => {
     const amt = amountOf(fd.amount);
     if (amt === null) return { error: 'Enter the amount as a number.', field: 'amount' };
@@ -1503,6 +1521,7 @@ document.addEventListener('click', e => {
     case 'settle': settle(kind, id); break;
     case 'skip': {
       const it = find(); if (!it) return;
+      if (dlg.open) dlg.close();
       const n = C.nextAfter(it);
       commit(n ? `${it.name} moved to ${fmtDate(parse(n))}.` : `${it.name} removed (no later date).`, () => {
         if (n) it.next = n; else { const l = listFor(kind); l.splice(l.indexOf(it), 1); }
