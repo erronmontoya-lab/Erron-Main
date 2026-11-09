@@ -83,7 +83,7 @@ const MOCK = () => {
 
   await run('a change on one device shows up on the other', async () => {
     await B.p.click('[data-tab=bills]');
-    await B.p.locator('button[data-action=del][data-kind=bill]').first().click();
+    await B.p.locator('#app .list-row[data-kind=bill]').first().click(); await B.p.click('dialog [data-action=del]');
     await B.p.waitForTimeout(1200);
     assert.equal(stored().state.bills.length, 13);
     await A.p.waitForFunction(() => document.querySelector('#toast') && /other device/.test(document.querySelector('#toast').textContent), null, { timeout: 5000 });
@@ -92,8 +92,8 @@ const MOCK = () => {
 
   await run('editing with a sheet open waits, then applies the newer copy', async () => {
     await A.p.click('[data-tab=bills]');
-    await A.p.locator('.list-row[data-kind=bill]').first().click();       // sheet open on A
-    await B.p.locator('button[data-action=del][data-kind=bill]').first().click();
+    await A.p.locator('#app .list-row[data-kind=bill]').first().click();       // sheet open on A
+    await B.p.locator('#app .list-row[data-kind=bill]').first().click(); await B.p.click('dialog [data-action=del]');
     await B.p.waitForTimeout(1200);
     assert.equal(stored().state.bills.length, 12);
     assert.equal(await A.p.evaluate(k => JSON.parse(localStorage.getItem(k)).bills.length, 'runway-tracker.v1'), 13, 'not applied while editing');
@@ -119,7 +119,7 @@ const MOCK = () => {
 
   await run('a failed write shows offline, then syncs when it can', async () => {
     await B.p.evaluate(() => { window.__failWrites = true; });
-    await B.p.locator('button[data-action=del][data-kind=bill]').first().click();
+    await B.p.locator('#app .list-row[data-kind=bill]').first().click(); await B.p.click('dialog [data-action=del]');
     await waitStatus(B.p, 'Offline · saved here');
     assert.equal(stored().state.bills.length, 12, 'cloud unchanged while offline');
     await B.p.evaluate(() => { window.__failWrites = false; window.dispatchEvent(new Event('online')); });

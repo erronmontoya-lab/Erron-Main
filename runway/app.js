@@ -250,7 +250,7 @@ const VIEWS = {
   overview: { title: 'Summary', short: 'Summary', icon: 'overview' },
   bills:    { title: 'Bills', short: 'Bills', icon: 'bills' },
   income:   { title: 'Income', short: 'Income', icon: 'income' },
-  accounts: { title: 'Accounts', short: 'Wallet', icon: 'accounts' },
+  accounts: { title: 'Accounts', short: 'Accounts', icon: 'accounts' },
   history:  { title: 'History', short: 'History', icon: 'history' },
   settings: { title: 'Settings', short: 'Settings', icon: 'settings' }
 };
@@ -267,6 +267,7 @@ function computeModel() {
     billsMo: monthly(S.bills, b => b.freq !== 'once' && isActive(b)),
     essMo: monthly(S.bills, b => b.freq !== 'once' && b.essential && isActive(b)),
     incMo: monthly(S.income, i => i.freq !== 'once' && isActive(i)),
+    cardMin: C.monthlyMinimums(S),
     cred: C.creditSummary(S).cards ? C.planCredit(S, { days: H }, t0) : null
   };
 }
@@ -371,7 +372,6 @@ function ringSVG(pct, color, size, stroke) {
 const status = st => `<span class="status" style="color:${st.color}"><span class="dot" style="background:${st.color}"></span>${st.label}</span>`;
 const signed = n => `${n >= 0 ? '+' : '−'}${money(Math.abs(n))}`;
 const emptyHTML = (icon, color, title, text, btn = '') => `<div class="empty">${tile(icon, color)}<b>${title}</b>${text}${btn ? `<div>${btn}</div>` : ''}</div>`;
-const delBtn = (kind, id) => `<button class="btn round xs" data-action="del" data-kind="${kind}" data-id="${esc(id)}" aria-label="Delete" title="Delete" style="color:var(--label-2)">${ic('trash')}</button>`;
 
 /* =====================================================================
  * Summary (overview)
@@ -382,9 +382,9 @@ function overviewHTML() {
 }
 
 function heroHTML() {
-  const { all, ess, billsMo, essMo, incMo } = model;
+  const { all, ess, billsMo, essMo, incMo, cardMin } = model;
   const r = runwayText(all), re = runwayText(ess), st = statusOf(all);
-  const net = incMo - billsMo, tm = S.settings.targetMonths, pct = goalPct(all);
+  const net = incMo - billsMo - cardMin, tm = S.settings.targetMonths, pct = goalPct(all);
   const ck = S.checkins, last = ck[ck.length - 1], prev = ck[ck.length - 2];
   const cashDelta = last && prev ? last.total - prev.total : null;
   const activeInc = S.income.filter(i => isActive(i) && i.freq !== 'once').length;
@@ -413,7 +413,7 @@ function heroHTML() {
     </div>
     <div class="kpis">
       ${kpi('Cash on Hand', 'wallet', 'blue', money(cashTotal()), cashDelta === null ? `${counted} account${counted === 1 ? '' : 's'}` : `<span style="color:var(--${cashDelta >= 0 ? 'green' : 'red'})">${signed(cashDelta)}</span> since ${safeDate(prev.date, { month: 'short', day: 'numeric' })}`)}
-      ${kpi('Bills', 'bills', 'orange', money(billsMo), `${money(essMo)} essential per month`)}
+      ${kpi('Bills', 'bills', 'orange', money(billsMo), cardMin ? `plus ${money(cardMin)} card minimums per month` : `${money(essMo)} essential per month`)}
       ${kpi('Income', 'income', 'green', money(incMo), `${activeInc} active source${activeInc === 1 ? '' : 's'} per month`)}
       ${kpi('Net', net >= 0 ? 'income' : 'down', net >= 0 ? 'green' : 'red', signed(net), net >= 0 ? 'Cash growing each month' : 'Burn per month')}
     </div>
@@ -424,9 +424,12 @@ const kpi = (label, icon, color, val, note) => `<div class="card kpi"><div class
 function attentionItems() {
   const t0 = today(), A = [];
   const overdue = S.bills.filter(b => parse(b.next) < t0);
-  if (overdue.length) A.push(['alert', 'red', `${overdue.length} Overdue Bill${overdue.length > 1 ? 's' : ''}`, overdue.map(b => b.name).join(', '), '']);
+  if (overdue.length) A.push(['alert', 'red', `${overdue.length} Overdue Bill${overdue.length > 1 ? 's' : ''}`, listNames(overdue), '']);
+  const cs = C.creditSummary(S);
+  const dupes = cs.owedAll > 0 ? S.bills.filter(b => /\b(card|visa|amex|american express|mastercard|discover)\b/i.test(b.name)) : [];
+  if (dupes.length) A.push(['accounts', 'indigo', 'Card Payment Listed as a Bill?', `Runway already counts your card minimums. If ${listNames(dupes)} ${dupes.length > 1 ? 'are card payments' : 'is a card payment'}, delete ${dupes.length > 1 ? 'them' : 'it'} so it isn’t counted twice.`, '']);
   const late = S.income.filter(i => parse(i.next) < t0);
-  if (late.length) A.push(['clock', 'orange', 'Confirm Income', `${late.map(i => i.name).join(', ')} — mark received or skip`, '']);
+  if (late.length) A.push(['clock', 'orange', 'Confirm Income', `${listNames(late)}: mark received or skip`, '']);
   if (model.all.out === 0) A.push(['alert', 'red', 'Below Your Cushion', 'Cash is under your safety cushion right now', '']);
   else if (model.all.out > 0 && model.all.out <= 3 * MONTH) { const re = runwayText(model.ess); A.push(['alert', 'red', 'Less Than 3 Months Left', `Essentials only gives you ${re.big} ${re.unit}`, '']); }
   for (const i of S.income) {
@@ -442,6 +445,7 @@ function attentionItems() {
     A.push(['shield', 'gray', 'Back Up Your Data', since === null ? 'No backup exported yet' : `Last backup was ${since} days ago`, `<button class="btn xs tinted" data-action="export">Export</button>`]);
   return A;
 }
+const listNames = items => items.length <= 3 ? items.map(i => i.name).join(', ') : `${items.slice(0, 3).map(i => i.name).join(', ')} and ${items.length - 3} more`;
 function attentionHTML() {
   const A = attentionItems();
   if (!A.length) return `<div class="group"><div class="list-row has-tile">${tile('check', 'green')}<div class="body"><div class="t">You're All Set</div><div class="s">No overdue bills, nothing ending soon, backup is current.</div></div></div></div>`;
@@ -619,18 +623,18 @@ function billsView() {
       </div>
     </div>
     <div class="group">
-    ${rows.length ? rows.map(b => `<div class="list-row has-tile" data-action="edit" data-kind="bill" data-id="${esc(b.id)}" role="button" tabindex="0" aria-label="Edit ${esc(b.name)}">
+    ${rows.length ? rows.map(b => `<button type="button" class="list-row has-tile" data-action="edit" data-kind="bill" data-id="${esc(b.id)}">
         ${catTile(b.category)}
         <div class="body">
           <div class="t">${esc(b.name)}${b.essential ? '' : '<span class="tag">Extra</span>'}${b.card ? '<span class="tag blue">Card OK</span>' : ''}</div>
           <div class="s">${FREQ[b.freq].label} · ${esc(b.category)}${b.end ? ` · until ${safeDate(b.end, { month: 'short', year: 'numeric' })}` : ''}</div>
         </div>
         <div class="end"><div class="amt">${money(b.amount, true)}</div><div class="foot13">${dueText(b, 'bill')}</div></div>
-        <div class="tools">${delBtn('bill', b.id)}${ic('chevron', 'chev')}</div>
-      </div>`).join('')
+        ${ic('chevron', 'chev')}
+      </button>`).join('')
       : emptyHTML('bills', 'orange', S.bills.length ? 'No Matching Bills' : 'No Bills Yet', S.bills.length ? 'Try a different filter.' : 'Add rent, insurance, phone, loans, groceries and gas.', S.bills.length ? '' : `<button class="btn primary" data-action="add" data-kind="bill">${ic('plus')}Add Bill</button>`)}
     </div>
-    <div class="sect-foot">Tap a bill to edit it. Mark bills as essential to see your bare-bones runway.</div>
+    <div class="sect-foot">Tap a bill to edit or delete it. Mark bills as essential to see your bare-bones runway.</div>
   </div>`;
 }
 
@@ -644,15 +648,15 @@ function incomeView() {
   <div class="card stats">${stat('Per Month', money(model ? model.incMo : 0))}${stat('Next 90 Days', money(next90))}${stat('Active', active.length)}${stat('Ending Soon', ending)}</div>
   <div>
     <div class="group">
-    ${rows.length ? rows.map(i => `<div class="list-row has-tile" data-action="edit" data-kind="income" data-id="${esc(i.id)}" role="button" tabindex="0" aria-label="Edit ${esc(i.name)}">
+    ${rows.length ? rows.map(i => `<button type="button" class="list-row has-tile" data-action="edit" data-kind="income" data-id="${esc(i.id)}">
         ${tile(i.freq === 'once' ? 'sparkles' : 'briefcase', isActive(i) ? 'green' : 'gray')}
         <div class="body">
           <div class="t">${esc(i.name)}${!isActive(i) ? '<span class="tag">Ended</span>' : ''}</div>
           <div class="s">${FREQ[i.freq].label}${i.end ? ` · ends ${safeDate(i.end, { month: 'short', day: 'numeric' })} (${Math.max(0, daysBetween(t0, parse(i.end)))} days)` : ' · ongoing'}</div>
         </div>
         <div class="end"><div class="amt in">+${money(i.amount, true)}</div><div class="foot13">${dueText(i, 'income')}</div></div>
-        <div class="tools">${delBtn('income', i.id)}${ic('chevron', 'chev')}</div>
-      </div>`).join('')
+        ${ic('chevron', 'chev')}
+      </button>`).join('')
       : emptyHTML('briefcase', 'green', 'No Income Yet', 'Add unemployment benefits, severance, freelance work or a partner\'s help.', `<button class="btn primary" data-action="add" data-kind="income">${ic('plus')}Add Income</button>`)}
     </div>
     <div class="sect-foot">Benefits usually stop after a set number of weeks — give them an end date. Use “One time” for severance or a tax refund.</div>
@@ -688,7 +692,7 @@ function accountsView() {
   const tools = a => `<div class="wtools"><button class="btn round xs" data-action="edit" data-kind="account" data-id="${esc(a.id)}" aria-label="Edit" title="Edit">${ic('edit')}</button><button class="btn round xs" data-action="del" data-kind="account" data-id="${esc(a.id)}" aria-label="Delete" title="Delete">${ic('trash')}</button></div>`;
   const cash = S.accounts.filter(a => a.type !== 'credit'), cards = S.accounts.filter(a => a.type === 'credit');
   return `
-  <div class="card stats">${stat('Cash Counted', money(cashTotal()))}${stat('Not Counted', money(excluded))}${stat('Usable Credit', money(cs.usable))}${stat('Card Debt', money(cs.owed))}</div>
+  <div class="card stats">${stat('Cash Counted', money(cashTotal()))}${stat('Not Counted', money(excluded))}${stat('Usable Credit', money(cs.usable))}${stat('Card Debt', money(cs.owedAll))}</div>
   <div>
     <div class="sect"><span>Cash</span></div>
     <div class="wallet">${cash.map(cashCard).join('')}<button class="wadd" data-action="add" data-kind="account">${ic('plus')}Add Account</button></div>
@@ -708,11 +712,11 @@ function historyView() {
     <div>
       <div class="sect"><span>Balance Check-Ins</span></div>
       <div class="group">
-      ${ck.length ? ck.map((c, idx) => { const prev = ck[idx + 1], ch = prev ? c.total - prev.total : null;
+      ${ck.length ? ck.slice(0, ui.showAllCheckins ? ck.length : 60).map((c, idx) => { const prev = ck[idx + 1], ch = prev ? c.total - prev.total : null;
         return `<div class="list-row has-tile">${tile('checkin', 'blue', 'sm')}
           <div class="body"><div class="t">${safeDate(c.date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>${ch == null ? '' : `<div class="s" style="color:var(--${ch >= 0 ? 'green' : 'red'})">${signed(ch)}</div>`}</div>
           <div class="amt rounded" style="font-weight:600">${money(c.total)}</div>
-          <button class="btn round xs" data-action="delck" data-date="${esc(c.date)}" aria-label="Delete check-in" title="Delete" style="color:var(--label-2)">${ic('trash')}</button></div>`; }).join('')
+          <button class="btn round xs" data-action="delck" data-date="${esc(c.date)}" aria-label="Delete check-in" title="Delete" style="color:var(--label-2)">${ic('trash')}</button></div>`; }).join('') + (ck.length > 60 ? `<button type="button" class="list-row action-row" data-action="toggle-checkins">${ui.showAllCheckins ? 'Show Recent' : `Show All ${ck.length}`}</button>` : '')
         : emptyHTML('checkin', 'blue', 'No Check-Ins Yet', 'Log your balances weekly to compare reality with the plan.', `<button class="btn primary" data-action="checkin">Check In</button>`)}
       </div>
     </div>
@@ -1001,6 +1005,7 @@ function editBill(b) {
           frow('Essential', `<input type="checkbox" class="switch" name="essential" ${v.essential ? 'checked' : ''}>`),
           frow('Can Pay by Card', `<input type="checkbox" class="switch" name="card" ${v.card ? 'checked' : ''}>`))}
     ${note('Essentials are bills you\'d keep paying on a bare-bones budget. Turn on Can Pay by Card if this biller takes credit cards; when cash runs low, your cards can cover it.')}
+    ${isNew ? '' : gap + grp(`<button type="button" class="list-row action-row destructive" data-action="del" data-kind="bill" data-id="${esc(b.id)}">Delete Bill</button>`)}
   `, isNew ? 'Add' : 'Done', fd => {
     const r = validateFlow(fd);
     if (r.error) return r;
@@ -1019,6 +1024,7 @@ function editIncome(i) {
           frow('Next Payment', `<input type="date" name="next" required value="${esc(v.next)}">`),
           frow('Ends', `<input type="date" name="end" value="${esc(v.end || '')}">`))}
     ${note('Benefits usually stop after a set number of weeks, so give them an end date. Use “One time” for severance or a tax refund.')}
+    ${isNew ? '' : gap + grp(`<button type="button" class="list-row action-row destructive" data-action="del" data-kind="income" data-id="${esc(i.id)}">Delete Income</button>`)}
   `, isNew ? 'Add' : 'Done', fd => {
     const r = validateFlow(fd);
     if (r.error) return r;
@@ -1033,7 +1039,7 @@ function editAccount(a, presetType) {
   openDialog(isNew ? (isCredit ? 'New Credit Card' : 'New Account') : (isCredit ? 'Edit Credit Card' : 'Edit Account'), `
     ${grp(frow('Type', `<select name="type"><option value="cash" ${!isCredit ? 'selected' : ''}>Cash account</option><option value="credit" ${isCredit ? 'selected' : ''}>Credit card</option></select>`),
           frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="${isCredit ? 'Rewards card…' : 'Checking, savings…'}">`),
-          `<label class="frow"><span data-label-balance>${isCredit ? 'Amount Owed' : 'Balance'}</span><input type="text" inputmode="decimal" name="balance" required value="${esc(v.balance)}" placeholder="$0.00"></label>`,
+          `<label class="frow"><span data-label-balance>${isCredit ? 'Amount Owed' : 'Balance'}</span><input type="text" ${isCredit ? 'inputmode="decimal"' : ''} name="balance" required value="${esc(v.balance)}" placeholder="$0.00"></label>`,
           `<label class="frow" data-for="credit" ${isCredit ? '' : 'hidden'}><span>Credit Limit</span><input type="text" inputmode="decimal" name="limit" value="${esc(v.limit ?? '')}" placeholder="$0.00"></label>`,
           `<label class="frow" data-for="credit" ${isCredit ? '' : 'hidden'}><span>Interest Rate (APR)</span><input type="text" inputmode="decimal" name="apr" value="${esc(v.apr ?? '')}" placeholder="0%"></label>`)}
     <div data-for="cash" ${isCredit ? 'hidden' : ''}>${note('Use a minus sign if the account is overdrawn.')}</div>
@@ -1333,6 +1339,12 @@ async function pushNow() {
   if (localUpdatedAt < 10) { localUpdatedAt = Date.now(); setStamp('updatedAt', localUpdatedAt); }
   const stamp = localUpdatedAt;
   const body = { v: 1, updatedAt: stamp, device: DEVICE, state: JSON.parse(JSON.stringify(S)) };
+  const kb = Math.round(JSON.stringify(body).length / 1024);
+  if (kb > 240) {
+    sync.writing = false;
+    setSync('error', `Your data is too large to sync (${kb} KB; the limit is about 240 KB). Delete old check-ins, activity or unused bills, and it will sync again.`);
+    return;
+  }
   try {
     try { await sync.ref.set(body); }
     catch (e) {
@@ -1400,6 +1412,7 @@ document.addEventListener('click', e => {
     case 'edit': { const it = find(); if (it) editors[kind](it); break; }
     case 'del': {
       const it = find(); if (!it) return;
+      if (dlg.open) dlg.close();
       commit(`Deleted ${it.name}.`, () => { const l = listFor(kind); l.splice(l.indexOf(it), 1); });
       break;
     }
@@ -1415,6 +1428,7 @@ document.addEventListener('click', e => {
     case 'checkin': checkinDialog(); break;
     case 'delck': commit('Check-in deleted.', () => { S.checkins = S.checkins.filter(c => c.date !== el.dataset.date); }); break;
     case 'tab': if (VIEWS[el.dataset.tab]) { ui.view = el.dataset.tab; render(); window.scrollTo({ top: 0 }); } break;
+    case 'toggle-checkins': ui.showAllCheckins = !ui.showAllCheckins; render(); break;
     case 'toggle-upcoming': ui.showAllUpcoming = !ui.showAllUpcoming; render(); break;
     case 'goal': S.settings.targetMonths = Math.max(1, Math.min(60, S.settings.targetMonths + (+el.dataset.d || 0))); render(); break;
     case 'billfilter': ui.billFilter = el.dataset.f; render(); break;
@@ -1440,7 +1454,7 @@ document.addEventListener('click', e => {
 });
 /* Rows that act like buttons respond to Enter and Space. */
 document.addEventListener('keydown', e => {
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.list-row[data-action]')) { e.preventDefault(); e.target.click(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.list-row[data-action]:not(button)')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset && e.target.dataset.setting;

@@ -75,12 +75,12 @@ async function run(name, fn) {
     await p.goto(URL);
     await p.click('text=Explore with sample data');
     await p.click('[data-tab=bills]');
-    const n = await p.locator('button[data-action=del][data-kind=bill]').count();
+    const n = await p.locator('#app .list-row[data-kind=bill]').count();
     assert.ok(n > 0);
-    await p.locator('button[data-action=del][data-kind=bill]').first().click();
-    assert.equal(await p.locator('button[data-action=del][data-kind=bill]').count(), n - 1);
+    await p.locator('#app .list-row[data-kind=bill]').first().click(); await p.click('dialog [data-action=del]');
+    assert.equal(await p.locator('#app .list-row[data-kind=bill]').count(), n - 1);
     await p.click('#toast [data-undo]');
-    assert.equal(await p.locator('button[data-action=del][data-kind=bill]').count(), n);
+    assert.equal(await p.locator('#app .list-row[data-kind=bill]').count(), n);
     await ctx.close();
   });
 
@@ -178,9 +178,9 @@ async function run(name, fn) {
     await a.click('text=Explore with sample data');
     await a.click('[data-tab=bills]');
     await b.goto(URL);
-    const n = await b.locator('button[data-action=del][data-kind=bill]').count();
-    await a.locator('button[data-action=del][data-kind=bill]').first().click();
-    await b.waitForFunction(m => document.querySelectorAll('button[data-action=del][data-kind=bill]').length === m, n - 1, { timeout: 3000 });
+    const n = await b.locator('#app .list-row[data-kind=bill]').count();
+    await a.locator('#app .list-row[data-kind=bill]').first().click(); await a.click('dialog [data-action=del]');
+    await b.waitForFunction(m => document.querySelectorAll('#app .list-row[data-kind=bill]').length === m, n - 1, { timeout: 3000 });
     await ctx.close();
   });
 
@@ -195,7 +195,7 @@ async function run(name, fn) {
     }
     await p.click('[data-tab=bills]');
     await p.click('[data-action=billfilter][data-f=extras]');
-    assert.ok(await p.locator('.list-row[data-kind=bill]').count() > 0);
+    assert.ok(await p.locator('#app .list-row[data-kind=bill]').count() > 0);
     assert.deepEqual(errors, []);
     await ctx.close();
   });

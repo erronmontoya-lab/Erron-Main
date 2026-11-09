@@ -16,6 +16,8 @@
   const MAX_DAYS = 3660;            // hard cap on projection length (~10 years)
   const MAX_OCCURRENCES = 5000;     // per item, guards against runaway loops
   const MAX_ACTIVITY = 500;
+  const MAX_CHECKINS = 1000;      // ~3 years daily, ~19 years weekly; keeps the synced copy small
+  const MAX_ITEMS = 500;          // per list (accounts, bills, income)
   const MAX_AMOUNT = 1e9;
 
   /* ---------- dates (local calendar days, never UTC) ---------- */
@@ -145,7 +147,12 @@
     const arr = (v, name) => {
       if (v == null) return [];
       if (!Array.isArray(v)) { warnings.push(`"${name}" was not a list and was ignored.`); return []; }
-      return v.filter(x => x && typeof x === 'object');
+      const items = v.filter(x => x && typeof x === 'object');
+      if (name !== 'checkins' && name !== 'activity' && items.length > MAX_ITEMS) {
+        warnings.push(`Only the first ${MAX_ITEMS} ${name} were kept.`);
+        return items.slice(0, MAX_ITEMS);
+      }
+      return items;
     };
 
     for (const a of arr(raw.accounts, 'accounts')) {
@@ -202,7 +209,7 @@
       if (!isISODate(c.date) || !Number.isFinite(finite(c.total, NaN))) continue;
       byDate.set(c.date, round2(finite(c.total)));
     }
-    s.checkins = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([date, total]) => ({ date, total }));
+    s.checkins = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([date, total]) => ({ date, total })).slice(-MAX_CHECKINS);
 
     s.activity = arr(raw.activity, 'activity')
       .filter(a => isISODate(a.date) && Number.isFinite(finite(a.amount, NaN)))
@@ -229,8 +236,12 @@
     const limit = cards.reduce((t, a) => t + finite(a.limit), 0);
     const owed = cards.reduce((t, a) => t + finite(a.balance), 0);
     const usable = cards.reduce((t, a) => t + Math.max(0, finite(a.limit) * cap - finite(a.balance)), 0);
-    return { cards: cards.length, limit: round2(limit), owed: round2(owed), usable: round2(usable), cap };
+    const owedAll = s.accounts.filter(a => a.type === 'credit').reduce((t, a) => t + finite(a.balance), 0);
+    return { cards: cards.length, limit: round2(limit), owed: round2(owed), owedAll: round2(owedAll), usable: round2(usable), cap };
   }
+  /** This month's minimum payments on every card that carries a balance. */
+  const monthlyMinimums = s => round2(s.accounts.filter(a => a.type === 'credit' && finite(a.balance) > 0)
+    .reduce((t, a) => { const owed = finite(a.balance), int = owed * finite(a.apr) / 1200; return t + minimumPayment(owed + int, int); }, 0));
   /** A typical card minimum: 1% of the balance plus that month's interest, at least $25. */
   const MIN_PAYMENT_FLOOR = 25;
   const minimumPayment = (owed, interest) => Math.min(owed, Math.max(MIN_PAYMENT_FLOOR, owed * 0.01 + interest));
@@ -265,8 +276,10 @@
        pay go on the cheapest card with room, so cash is kept for bills that
        must be paid in cash. planCredit() picks the latest such start. */
     const capPct = finite(s.settings && s.settings.creditCap, 80) / 100;
-    const cards = s.accounts.filter(a => a.type === 'credit' && a.include !== false)
-      .map(a => ({ owed: Math.max(0, finite(a.balance)), cap: finite(a.limit) * capPct, apr: finite(a.apr) / 100 }))
+    // Every card's existing debt costs interest and minimums; only cards
+    // used for runway take new charges.
+    const cards = s.accounts.filter(a => a.type === 'credit')
+      .map(a => ({ owed: Math.max(0, finite(a.balance)), cap: a.include === false ? 0 : finite(a.limit) * capPct, apr: finite(a.apr) / 100 }))
       .sort((x, y) => x.apr - y.apr);
     const payDays = new Set();
     for (let k = 1; Math.round(k * MONTH) <= days; k++) payDays.add(Math.round(k * MONTH));
@@ -352,6 +365,6 @@
     pad, iso, isISODate, parse, startOfDay, addDays, addMonths, daysBetween,
     nthOccurrence, occurrences, nextAfter, isActive,
     round2, finite, uid, blank, normalizeState,
-    cashTotal, creditSummary, minimumPayment, monthlyOf, simulate, planCredit, gapFor, upcoming
+    MAX_CHECKINS, cashTotal, creditSummary, minimumPayment, monthlyMinimums, monthlyOf, simulate, planCredit, gapFor, upcoming
   };
 });

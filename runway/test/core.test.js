@@ -174,7 +174,7 @@ test('credit cards are not cash, and carry limit and APR', () => {
   assert.equal(C.cashTotal(s), 3000);
   const card = s.accounts.find(a => a.type === 'credit');
   assert.deepEqual([card.limit, card.apr, card.balance], [10000, 24, 0]);
-  assert.deepEqual(C.creditSummary(s), { cards: 1, limit: 10000, owed: 0, usable: 8000, cap: 0.8 });
+  assert.deepEqual(C.creditSummary(s), { cards: 1, limit: 10000, owed: 0, owedAll: 0, usable: 8000, cap: 0.8 });
   const bad = C.normalizeState({ accounts: [{ type: 'credit', balance: -50, limit: 'x', apr: 400 }] }).state.accounts[0];
   assert.deepEqual([bad.balance, bad.limit, bad.apr], [0, 0, 100]);
 });
@@ -260,4 +260,28 @@ test('no credit accounts: results identical with or without useCredit', () => {
   const a = C.simulate(s, { days: 400 }, TODAY), b = C.simulate(s, { useCredit: true, days: 400 }, TODAY);
   assert.deepEqual([...a.bal], [...b.bal]);
   assert.equal(a.out, b.out);
+});
+
+test('a card not used for runway still costs interest and minimums, but takes no new charges', () => {
+  const s = state({
+    accounts: [{ id: 'a', name: 'Checking', balance: 3000 }, { id: 'c', name: 'Old card', type: 'credit', balance: 4000, limit: 5000, apr: 24, include: false }],
+    bills: [{ name: 'Phone', amount: 100, freq: 'monthly', next: '2026-11-10', card: true }]
+  });
+  const r = C.simulate(s, { useCredit: true, days: 31 }, TODAY);
+  assert.equal(r.interest, 80);
+  assert.equal(r.charged, 0);
+  assert.ok(r.minimums > 0);
+  assert.equal(C.creditSummary(s).cards, 0);
+  assert.equal(C.creditSummary(s).owedAll, 4000);
+  assert.equal(Math.round(C.monthlyMinimums(s)), 121);   // 1% of 4080 + 80 interest
+});
+
+test('long histories and huge lists are trimmed to keep the synced copy small', () => {
+  const checkins = Array.from({ length: 1500 }, (_, i) => ({ date: C.iso(C.addDays(TODAY, -i)), total: i }));
+  const bills = Array.from({ length: 700 }, (_, i) => ({ name: 'B' + i, amount: 1, freq: 'monthly', next: '2026-12-01' }));
+  const { state: s, warnings } = C.normalizeState({ checkins, bills });
+  assert.equal(s.checkins.length, C.MAX_CHECKINS);
+  assert.equal(s.checkins[s.checkins.length - 1].date, C.iso(TODAY), 'the newest are kept');
+  assert.equal(s.bills.length, 500);
+  assert.ok(warnings.some(w => /first 500 bills/.test(w)));
 });
