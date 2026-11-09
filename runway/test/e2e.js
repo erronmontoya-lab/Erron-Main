@@ -200,6 +200,37 @@ async function run(name, fn) {
     await ctx.close();
   });
 
+  await run('credit cards: add one, see the credit runway, pay a bill by card', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    assert.match(await p.locator('.planner').first().innerText(), /\+\d+(\.\d)? months/);
+    await p.click('[data-tab=accounts]');
+    await p.click('button.wadd[data-type=credit]');
+    assert.equal(await p.locator('dialog [name=type]').inputValue(), 'credit');
+    await p.fill('dialog [name=name]', 'Store Card');
+    await p.fill('dialog [name=balance]', '0');
+    await p.click('dialog button.primary');
+    assert.match(await p.locator('.form-error').innerText(), /credit limit/i);
+    await p.fill('dialog [name=limit]', '2,000');
+    await p.fill('dialog [name=apr]', '29.99%');
+    await p.click('dialog button.primary');
+    const card = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).accounts.find(a => a.name === 'Store Card'), 'runway-tracker.v1');
+    assert.deepEqual([card.type, card.limit, card.apr], ['credit', 2000, 29.99]);
+    const cash = await p.evaluate(k => JSON.parse(localStorage.getItem(k)).accounts.filter(a => a.type !== 'credit').reduce((t, a) => t + (a.include === false ? 0 : a.balance), 0), 'runway-tracker.v1');
+    await p.click('[data-tab=overview]');
+    await p.locator('[data-action=settle][data-kind=bill]').first().click();
+    await p.selectOption('dialog [name=acc]', { label: 'Store Card (card)' });
+    const charge = Number(await p.locator('dialog [name=amount]').inputValue());
+    await p.click('dialog button.primary');
+    const after = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), 'runway-tracker.v1');
+    assert.equal(after.accounts.find(a => a.name === 'Store Card').balance, charge, 'charge adds to what is owed');
+    assert.equal(after.accounts.filter(a => a.type !== 'credit').reduce((t, a) => t + (a.include === false ? 0 : a.balance), 0), cash, 'cash untouched');
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
   await run('phone width has no sideways scroll', async () => {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
     const p = await ctx.newPage();

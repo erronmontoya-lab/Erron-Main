@@ -266,7 +266,8 @@ function computeModel() {
     ess: C.simulate(S, { essentialOnly: true, days: H }, t0),
     billsMo: monthly(S.bills, b => b.freq !== 'once' && isActive(b)),
     essMo: monthly(S.bills, b => b.freq !== 'once' && b.essential && isActive(b)),
-    incMo: monthly(S.income, i => i.freq !== 'once' && isActive(i))
+    incMo: monthly(S.income, i => i.freq !== 'once' && isActive(i)),
+    cred: C.creditSummary(S).cards ? C.planCredit(S, { days: H }, t0) : null
   };
 }
 
@@ -377,7 +378,7 @@ const delBtn = (kind, id) => `<button class="btn round xs" data-action="del" dat
  * ===================================================================== */
 function overviewHTML() {
   return `${heroHTML()}${attentionHTML()}${chartCardHTML()}
-    <div class="cols">${upcomingHTML()}<div class="stack">${plannerHTML()}${categoriesHTML()}</div></div>`;
+    <div class="cols">${upcomingHTML()}<div class="stack">${creditHTML()}${plannerHTML()}${categoriesHTML()}</div></div>`;
 }
 
 function heroHTML() {
@@ -387,7 +388,7 @@ function heroHTML() {
   const ck = S.checkins, last = ck[ck.length - 1], prev = ck[ck.length - 2];
   const cashDelta = last && prev ? last.total - prev.total : null;
   const activeInc = S.income.filter(i => isActive(i) && i.freq !== 'once').length;
-  const counted = S.accounts.filter(a => a.include !== false).length;
+  const counted = S.accounts.filter(a => a.include !== false && a.type !== 'credit').length;
   const size = 156, stroke = 18, rr = (size - stroke) / 2, circ = 2 * Math.PI * rr;
   return `
   <section class="hero">
@@ -398,7 +399,7 @@ function heroHTML() {
         <div class="sub">${r.now ? '<b>Cash is already below your cushion.</b>' : r.date ? `Cash lasts until <b>${fmtDate(r.date, { month: 'long', day: 'numeric', year: 'numeric' })}</b>` : `Cash lasts beyond the ${S.settings.horizon}-month projection`}</div>
         <div class="hero-meta">
           <div><div class="mk">Essentials Only</div><div class="mv">${re.big} ${re.unit === 'months' ? 'mo' : re.unit}</div></div>
-          <div><div class="mk">Cushion</div><div class="mv">${money(S.settings.cushion)}</div></div>
+          ${model.cred ? (() => { const rc = runwayText(model.cred); return `<div><div class="mk">With Credit</div><div class="mv">${rc.big} ${rc.unit === 'months' ? 'mo' : rc.unit}</div></div>`; })() : `<div><div class="mk">Cushion</div><div class="mv">${money(S.settings.cushion)}</div></div>`}
           <div><div class="mk">Last Check-In</div><div class="mv">${last ? safeDate(last.date, { month: 'short', day: 'numeric' }) : '—'}</div></div>
         </div>
       </div>
@@ -512,6 +513,39 @@ function upcomingHTML() {
   </section>`;
 }
 
+function creditHTML() {
+  const cs = C.creditSummary(S);
+  const head = tag => `<div style="display:flex;align-items:center;gap:10px;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px">${tile('accounts', 'indigo', 'sm')}<h2 style="font-size:17px;font-weight:600">Credit Backstop</h2></div>${tag || ''}</div>`;
+  if (!cs.cards) return `<section class="card pad planner">${head()}
+    <p style="margin-top:12px">Add your credit cards to see how many months they could add to your runway, and what the interest would cost.</p>
+    <button class="btn tinted" style="margin-top:14px" data-action="add" data-kind="account" data-type="credit">${ic('plus')}Add Credit Card</button></section>`;
+  const { all, cred } = model;
+  const H = cred.days, endAll = all.out < 0 ? H : all.out, endCred = cred.out < 0 ? H : cred.out;
+  const extra = (endCred - endAll) / MONTH;
+  const rc = runwayText(cred);
+  const toEnd = C.simulate(S, { useCredit: true, creditFrom: cred.creditFrom, days: endCred }, today());
+  const owedEnd = toEnd.owed[toEnd.owed.length - 1] || 0;
+  const startDay = cred.owed.findIndex(v => v > cs.owed + 1);
+  const cardBills = S.bills.filter(b => b.card).length;
+  const maxApr = Math.max(...S.accounts.filter(a => a.type === 'credit' && a.include !== false).map(a => a.apr || 0));
+  const row = (k, v, color) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:.5px solid var(--sep);font-size:14px"><span class="l2">${k}</span><span class="num" style="font-weight:600${color ? `;color:${color}` : ''}">${v}</span></div>`;
+  let big;
+  if (all.out < 0 && cred.out < 0) big = `<div class="answer" style="font-size:28px">Not needed</div><p>Your cash covers the full ${S.settings.horizon}-month projection without touching credit.</p>`;
+  else if (extra < 0.05) big = `<div class="answer" style="font-size:28px">Adds no time</div><p>${cardBills ? 'Your cards can’t cover the bills that run out first. Bills that must be paid in cash, like rent or loans, set the limit.' : 'No bills are marked Can Pay by Card yet. Edit your bills to mark the ones a card can cover.'}</p>`;
+  else big = `<div class="answer num" style="color:var(--green)">+${extra.toFixed(1)}<small> months</small></div><p>With credit, cash lasts ${rc.date ? `until <b>${fmtDate(rc.date, { month: 'long', year: 'numeric' })}</b>` : `beyond <b>${S.settings.horizon} months</b>`}.</p>`;
+  return `<section class="card pad planner">${head(`<span class="tag ${extra >= 0.05 ? 'blue' : ''}">${cs.cards} card${cs.cards === 1 ? '' : 's'}</span>`)}
+    ${big}
+    <div style="margin-top:14px">
+      ${row('Usable credit', `${money(cs.usable)} <span class="l3" style="font-weight:500">of ${money(cs.limit)}</span>`)}
+      ${startDay > 0 && extra >= 0.05 ? row('Cards start covering bills', fmtDate(addDays(today(), startDay), { month: 'short', day: 'numeric', year: 'numeric' })) : ''}
+      ${row('Card debt by then', money(owedEnd), owedEnd > cs.owed + 1 ? 'var(--orange)' : '')}
+      ${row('Interest by then', money(toEnd.interest), toEnd.interest > 1 ? 'var(--red)' : '')}
+      ${row('Bills a card can pay', `${cardBills} of ${S.bills.length}`)}
+    </div>
+    ${maxApr > 0 ? `<div class="note-box">${ic('info')}<span>At ${maxApr}% APR, every $1,000 you carry costs about ${money(1000 * maxApr / 100 / 12)} a month in interest, and minimum payments come out of cash.</span></div>` : ''}
+  </section>`;
+}
+
 function plannerHTML() {
   const tm = S.settings.targetMonths, t0 = today();
   const gapAll = C.gapFor(S, tm, false, t0), gapEss = C.gapFor(S, tm, true, t0);
@@ -554,9 +588,9 @@ function monthTableHTML(all, ess, range) {
   const rows = [], t0 = today();
   for (let m = 1; m <= range; m++) {
     const d = Math.min(all.bal.length - 1, Math.round(m * MONTH));
-    rows.push(`<div class="list-row"><div class="body">${fmtDate(addDays(t0, d), { month: 'long', year: 'numeric' })}</div><div class="end" style="flex-direction:row;gap:18px"><span class="num" style="color:var(--s1)">${money(all.bal[d])}</span><span class="num l2">${money(ess.bal[d])}</span></div></div>`);
+    rows.push(`<div class="list-row"><div class="body">${fmtDate(addDays(t0, d), { month: 'long', year: 'numeric' })}</div><div class="end" style="flex-direction:row;gap:18px"><span class="num" style="color:var(--s1)">${money(all.bal[d])}</span><span class="num l2">${money(ess.bal[d])}</span>${model.cred ? `<span class="num" style="color:var(--orange)">${money(model.cred.owed[d])}</span>` : ''}</div></div>`);
   }
-  return `<details class="tableview"><summary>${ic('chevron')}Show Month by Month</summary><div class="group"><div class="list-row" style="min-height:36px"><div class="body foot13">Month</div><div class="end foot13" style="flex-direction:row;gap:18px"><span>All bills</span><span>Essentials</span></div></div>${rows.join('')}</div></details>`;
+  return `<details class="tableview"><summary>${ic('chevron')}Show Month by Month</summary><div class="group"><div class="list-row" style="min-height:36px"><div class="body foot13">Month</div><div class="end foot13" style="flex-direction:row;gap:18px"><span>All bills</span><span>Essentials</span>${model.cred ? '<span>Card debt (with credit)</span>' : ''}</div></div>${rows.join('')}</div></details>`;
 }
 
 /* =====================================================================
@@ -588,7 +622,7 @@ function billsView() {
     ${rows.length ? rows.map(b => `<div class="list-row has-tile" data-action="edit" data-kind="bill" data-id="${esc(b.id)}" role="button" tabindex="0" aria-label="Edit ${esc(b.name)}">
         ${catTile(b.category)}
         <div class="body">
-          <div class="t">${esc(b.name)}${b.essential ? '' : '<span class="tag">Extra</span>'}</div>
+          <div class="t">${esc(b.name)}${b.essential ? '' : '<span class="tag">Extra</span>'}${b.card ? '<span class="tag blue">Card OK</span>' : ''}</div>
           <div class="s">${FREQ[b.freq].label} · ${esc(b.category)}${b.end ? ` · until ${safeDate(b.end, { month: 'short', year: 'numeric' })}` : ''}</div>
         </div>
         <div class="end"><div class="amt">${money(b.amount, true)}</div><div class="foot13">${dueText(b, 'bill')}</div></div>
@@ -626,25 +660,45 @@ function incomeView() {
 }
 
 function accountsView() {
-  const excluded = S.accounts.filter(a => a.include === false).reduce((t, a) => t + a.balance, 0);
+  const excluded = S.accounts.filter(a => a.include === false && a.type !== 'credit').reduce((t, a) => t + a.balance, 0);
+  const cs = C.creditSummary(S);
   let gi = 0;
+  const cashCard = a => {
+    const cls = a.include === false ? 'off' : 'g' + (gi++ % 4);
+    return `<div class="wcard ${cls}">
+      <div class="wt"><div><div class="wn">${esc(a.name)}</div><div class="ws">${a.include === false ? 'Not counted toward runway' : 'Counts toward runway'}</div></div>${tools(a)}</div>
+      <div>
+        <div class="wb num">${money(a.balance, true)}</div>
+        <div class="wf"><span>${a.updated ? 'Updated ' + safeDate(a.updated, { month: 'short', day: 'numeric' }) : ''}</span>${ic(a.include === false ? 'archive' : 'bank')}</div>
+      </div>
+    </div>`;
+  };
+  const creditCard = a => {
+    const used = a.limit ? Math.min(100, a.balance / a.limit * 100) : 0;
+    return `<div class="wcard ${a.include === false ? 'off' : 'credit'}">
+      <div class="wt"><div><div class="wn">${esc(a.name)}</div><div class="ws">Credit card${a.apr ? ` · ${a.apr}% APR` : ''}${a.include === false ? ' · not used for runway' : ''}</div></div>${tools(a)}</div>
+      <div>
+        <div class="ws" style="margin-bottom:2px">Owed</div>
+        <div class="wb num">${money(a.balance, true)}</div>
+        <div class="wmeter"><i style="width:${used.toFixed(1)}%"></i></div>
+        <div class="wf"><span>${money(Math.max(0, a.limit - a.balance))} available of ${money(a.limit)}</span>${ic('accounts')}</div>
+      </div>
+    </div>`;
+  };
+  const tools = a => `<div class="wtools"><button class="btn round xs" data-action="edit" data-kind="account" data-id="${esc(a.id)}" aria-label="Edit" title="Edit">${ic('edit')}</button><button class="btn round xs" data-action="del" data-kind="account" data-id="${esc(a.id)}" aria-label="Delete" title="Delete">${ic('trash')}</button></div>`;
+  const cash = S.accounts.filter(a => a.type !== 'credit'), cards = S.accounts.filter(a => a.type === 'credit');
   return `
-  <div class="card stats">${stat('Counted', money(cashTotal()))}${stat('Not Counted', money(excluded))}${stat('Accounts', S.accounts.length)}${stat('Updated', (() => { const l = S.accounts.map(a => a.updated).filter(Boolean).sort().pop(); return l ? safeDate(l, { month: 'short', day: 'numeric' }) : '—'; })())}</div>
-  <div class="wallet">
-    ${S.accounts.map(a => {
-      const cls = a.include === false ? 'off' : 'g' + (gi++ % 4);
-      return `<div class="wcard ${cls}">
-        <div class="wt"><div><div class="wn">${esc(a.name)}</div><div class="ws">${a.include === false ? 'Not counted toward runway' : 'Counts toward runway'}</div></div>
-          <div class="wtools"><button class="btn round xs" data-action="edit" data-kind="account" data-id="${esc(a.id)}" aria-label="Edit" title="Edit">${ic('edit')}</button><button class="btn round xs" data-action="del" data-kind="account" data-id="${esc(a.id)}" aria-label="Delete" title="Delete">${ic('trash')}</button></div></div>
-        <div>
-          <div class="wb num">${money(a.balance, true)}</div>
-          <div class="wf"><span>${a.updated ? 'Updated ' + safeDate(a.updated, { month: 'short', day: 'numeric' }) : ''}</span>${ic(a.include === false ? 'archive' : 'bank')}</div>
-        </div>
-      </div>`;
-    }).join('')}
-    <button class="wadd" data-action="add" data-kind="account">${ic('plus')}Add Account</button>
+  <div class="card stats">${stat('Cash Counted', money(cashTotal()))}${stat('Not Counted', money(excluded))}${stat('Usable Credit', money(cs.usable))}${stat('Card Debt', money(cs.owed))}</div>
+  <div>
+    <div class="sect"><span>Cash</span></div>
+    <div class="wallet">${cash.map(cashCard).join('')}<button class="wadd" data-action="add" data-kind="account">${ic('plus')}Add Account</button></div>
+    <div class="sect-foot">Include cash you can actually spend. Leave retirement accounts out unless you plan to tap them.</div>
   </div>
-  <div class="sect-foot">Include cash you can actually spend. Leave retirement accounts out unless you plan to tap them.</div>`;
+  <div>
+    <div class="sect"><span>Credit Cards</span></div>
+    <div class="wallet">${cards.map(creditCard).join('')}<button class="wadd" data-action="add" data-kind="account" data-type="credit">${ic('plus')}Add Credit Card</button></div>
+    <div class="sect-foot">Cards never count as cash. They extend your runway only for bills marked Can Pay by Card, and only up to ${S.settings.creditCap}% of each limit (change this in Settings).</div>
+  </div>`;
 }
 
 function historyView() {
@@ -698,8 +752,9 @@ function settingsView() {
       <label class="list-row has-tile">${tile('shield', 'green')}<div class="body">Safety Cushion</div><span class="value" style="display:flex;align-items:center;gap:2px">$<input type="number" id="setCushion" min="0" step="100" value="${S.settings.cushion}" data-setting="cushion" aria-label="Safety cushion in dollars"></span></label>
       <label class="list-row has-tile">${tile('calendar', 'red')}<div class="body">Projection Length</div><span class="value"><select id="setHorizon" data-setting="horizon" aria-label="Projection length">${[12, 24, 36].map(m => `<option value="${m}" ${S.settings.horizon === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
       <label class="list-row has-tile">${tile('target', 'orange')}<div class="body">Runway Goal</div><span class="value"><select data-setting="targetMonths" aria-label="Runway goal">${[3, 6, 9, 12, 18, 24].concat([S.settings.targetMonths]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(m => `<option value="${m}" ${S.settings.targetMonths === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
+      <label class="list-row has-tile">${tile('accounts', 'indigo')}<div class="body">Use Up To</div><span class="value"><select data-setting="creditCap" aria-label="Share of each card limit to use">${[30, 50, 60, 70, 80, 90, 100].concat([S.settings.creditCap]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(p => `<option value="${p}" ${S.settings.creditCap === p ? 'selected' : ''}>${p}% of card limits</option>`).join('')}</select></span></label>
     </div>
-    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0.</div>
+    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0. Card companies can lower limits without notice, so the credit runway counts only part of each limit.</div>
 
     <div class="sect"><span>Backup</span></div>
     <div class="group">
@@ -943,12 +998,13 @@ function editBill(b) {
     ${note('Set an end date for loans or plans that finish, like a car payment.')}
     ${gap}
     ${grp(frow('Category', `<input type="text" name="category" maxlength="40" list="catList" value="${esc(v.category)}"><datalist id="catList">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>`),
-          frow('Essential', `<input type="checkbox" class="switch" name="essential" ${v.essential ? 'checked' : ''}>`))}
-    ${note('Essentials are bills you\'d keep paying on a bare-bones budget.')}
+          frow('Essential', `<input type="checkbox" class="switch" name="essential" ${v.essential ? 'checked' : ''}>`),
+          frow('Can Pay by Card', `<input type="checkbox" class="switch" name="card" ${v.card ? 'checked' : ''}>`))}
+    ${note('Essentials are bills you\'d keep paying on a bare-bones budget. Turn on Can Pay by Card if this biller takes credit cards; when cash runs low, your cards can cover it.')}
   `, isNew ? 'Add' : 'Done', fd => {
     const r = validateFlow(fd);
     if (r.error) return r;
-    upsert(S.bills, b, { id: b ? b.id : C.uid(), ...r.ok, anchorDay: anchorFor(b, r.ok.next, r.ok.freq), category: String(fd.category || '').trim().slice(0, 40) || 'Other', essential: !!fd.essential });
+    upsert(S.bills, b, { id: b ? b.id : C.uid(), ...r.ok, anchorDay: anchorFor(b, r.ok.next, r.ok.freq), category: String(fd.category || '').trim().slice(0, 40) || 'Other', essential: !!fd.essential, card: !!fd.card });
     return { label: isNew ? `Added ${r.ok.name}` : `Saved ${r.ok.name}` };
   });
 }
@@ -970,33 +1026,56 @@ function editIncome(i) {
     return { label: isNew ? `Added ${r.ok.name}` : `Saved ${r.ok.name}` };
   });
 }
-function editAccount(a) {
+function editAccount(a, presetType) {
   const isNew = !a;
-  const v = a || { name: '', balance: '', include: true };
-  openDialog(isNew ? 'New Account' : 'Edit Account', `
-    ${grp(frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Checking, savings…">`),
-          frow('Balance', `<input type="text" inputmode="decimal" name="balance" required value="${esc(v.balance)}" placeholder="$0.00">`))}
-    ${note('Use a minus sign if the account is overdrawn.')}
+  const v = a || { name: '', balance: '', include: true, type: presetType === 'credit' ? 'credit' : 'cash', limit: '', apr: '' };
+  const isCredit = v.type === 'credit';
+  openDialog(isNew ? (isCredit ? 'New Credit Card' : 'New Account') : (isCredit ? 'Edit Credit Card' : 'Edit Account'), `
+    ${grp(frow('Type', `<select name="type"><option value="cash" ${!isCredit ? 'selected' : ''}>Cash account</option><option value="credit" ${isCredit ? 'selected' : ''}>Credit card</option></select>`),
+          frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="${isCredit ? 'Rewards card…' : 'Checking, savings…'}">`),
+          `<label class="frow"><span data-label-balance>${isCredit ? 'Amount Owed' : 'Balance'}</span><input type="text" inputmode="decimal" name="balance" required value="${esc(v.balance)}" placeholder="$0.00"></label>`,
+          `<label class="frow" data-for="credit" ${isCredit ? '' : 'hidden'}><span>Credit Limit</span><input type="text" inputmode="decimal" name="limit" value="${esc(v.limit ?? '')}" placeholder="$0.00"></label>`,
+          `<label class="frow" data-for="credit" ${isCredit ? '' : 'hidden'}><span>Interest Rate (APR)</span><input type="text" inputmode="decimal" name="apr" value="${esc(v.apr ?? '')}" placeholder="0%"></label>`)}
+    <div data-for="cash" ${isCredit ? 'hidden' : ''}>${note('Use a minus sign if the account is overdrawn.')}</div>
+    <div data-for="credit" ${isCredit ? '' : 'hidden'}>${note('Use the purchase APR from your statement. Promotional 0% offers count as 0 until they end.')}</div>
     ${gap}
-    ${grp(frow('Count Toward Runway', `<input type="checkbox" class="switch" name="include" ${v.include !== false ? 'checked' : ''}>`))}
+    ${grp(`<label class="frow"><span data-label-include>${isCredit ? 'Use for Runway' : 'Count Toward Runway'}</span><input type="checkbox" class="switch" name="include" ${v.include !== false ? 'checked' : ''}></label>`)}
   `, isNew ? 'Add' : 'Done', fd => {
+    const type = fd.type === 'credit' ? 'credit' : 'cash';
     const name = String(fd.name || '').trim().slice(0, 120);
     if (!name) return { error: 'Give the account a name.', field: 'name' };
-    const balance = amountOf(fd.balance, { allowNegative: true });
-    if (balance === null) return { error: 'Enter the balance as a number, like 2500 or 2,500.00.', field: 'balance' };
-    upsert(S.accounts, a, { id: a ? a.id : C.uid(), name, balance, include: !!fd.include, updated: iso(today()) });
+    const balance = amountOf(fd.balance, { allowNegative: type === 'cash' });
+    if (balance === null) return { error: type === 'credit' ? 'Enter what you owe as a number, like 450 or 0.' : 'Enter the balance as a number, like 2500 or 2,500.00.', field: 'balance' };
+    const rec = { id: a ? a.id : C.uid(), name, type, balance, include: !!fd.include, updated: iso(today()) };
+    if (type === 'credit') {
+      const limit = amountOf(fd.limit, { allowZero: false });
+      if (limit === null) return { error: 'Enter the card’s credit limit.', field: 'limit' };
+      const apr = amountOf(String(fd.apr || '0').replace('%', ''));
+      if (apr === null || apr > 100) return { error: 'Enter the APR as a percentage, like 24.99.', field: 'apr' };
+      Object.assign(rec, { limit, apr });
+    }
+    upsert(S.accounts, a, rec);
     return { label: isNew ? `Added ${name}` : `Saved ${name}` };
   });
 }
+/* Switching the type in the account sheet shows the matching fields. */
+form.addEventListener('change', e => {
+  if (e.target.name !== 'type') return;
+  const credit = e.target.value === 'credit';
+  form.querySelectorAll('[data-for]').forEach(el => { el.hidden = el.dataset.for !== (credit ? 'credit' : 'cash'); });
+  const bl = form.querySelector('[data-label-balance]'); if (bl) bl.textContent = credit ? 'Amount Owed' : 'Balance';
+  const il = form.querySelector('[data-label-include]'); if (il) il.textContent = credit ? 'Use for Runway' : 'Count Toward Runway';
+  form.querySelector('.sheet-head h3').textContent = credit ? 'Credit Card' : 'Account';
+});
 function checkinDialog() {
   if (!S.accounts.length) { editAccount(); return; }
   openDialog('Check In', `
     <div class="lead">Enter what each account shows right now.</div>
-    ${grp(...S.accounts.map(a => frow(esc(a.name), `<input type="text" inputmode="decimal" name="acc_${esc(a.id)}" value="${a.balance}">`)))}
+    ${grp(...S.accounts.map(a => frow(esc(a.name) + (a.type === 'credit' ? ' <span class="l2">owed</span>' : ''), `<input type="text" inputmode="decimal" name="acc_${esc(a.id)}" value="${a.balance}">`)))}
   `, 'Save', fd => {
     const vals = {};
     for (const a of S.accounts) {
-      const val = amountOf(fd['acc_' + a.id], { allowNegative: true });
+      const val = amountOf(fd['acc_' + a.id], { allowNegative: a.type !== 'credit' });
       if (val === null) return { error: `Enter a number for ${a.name}.`, field: 'acc_' + a.id };
       vals[a.id] = val;
     }
@@ -1011,14 +1090,15 @@ function checkinDialog() {
 function settle(kind, id) {
   const list = listFor(kind), item = list.find(x => x.id === id);
   if (!item) return;
-  const counted = S.accounts.filter(a => a.include !== false);
-  const accs = counted.length ? counted : S.accounts;
+  const cashAccs = S.accounts.filter(a => a.type !== 'credit');
+  const counted = cashAccs.filter(a => a.include !== false);
+  const accs = (counted.length ? counted : cashAccs).concat(kind === 'bill' && item.card ? S.accounts.filter(a => a.type === 'credit') : []);
   const nxt = C.nextAfter(item);
   openDialog(kind === 'bill' ? 'Mark Paid' : 'Mark Received', `
     <div class="lead">${esc(item.name)}</div>
     ${grp(frow('Amount', `<input type="text" inputmode="decimal" name="amount" value="${item.amount}">`),
           frow('Date', `<input type="date" name="date" value="${iso(today())}">`),
-          ...(accs.length ? [frow(kind === 'bill' ? 'Paid From' : 'Deposit To', `<select name="acc">${accs.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}<option value="">None</option></select>`)] : []))}
+          ...(accs.length ? [frow(kind === 'bill' ? 'Paid From' : 'Deposit To', `<select name="acc">${accs.map(a => `<option value="${esc(a.id)}">${esc(a.name)}${a.type === 'credit' ? ' (card)' : ''}</option>`).join('')}<option value="">None</option></select>`)] : []))}
     ${note(nxt ? `Next date moves to ${fmtDate(parse(nxt))}.` : 'This was the last one, so it will be removed.')}
   `, kind === 'bill' ? 'Paid' : 'Done', fd => {
     const amt = amountOf(fd.amount);
@@ -1026,7 +1106,7 @@ function settle(kind, id) {
     if (!isISODate(fd.date)) return { error: 'Enter a valid date.', field: 'date' };
     if (!list.includes(item)) return { error: 'This item was changed or removed (maybe in another tab). Close and try again.' };
     const acc = S.accounts.find(a => a.id === fd.acc);
-    if (acc) { acc.balance = round2(acc.balance + (kind === 'bill' ? -amt : amt)); acc.updated = iso(today()); }
+    if (acc) { acc.balance = round2(acc.balance + (acc.type === 'credit' ? amt : kind === 'bill' ? -amt : amt)); acc.updated = iso(today()); }
     S.activity.push({ date: fd.date, name: item.name, amount: kind === 'bill' ? -amt : amt, account: acc ? acc.name : '' });
     if (S.activity.length > C.MAX_ACTIVITY) S.activity = S.activity.slice(-C.MAX_ACTIVITY);
     const n = C.nextAfter(item);
@@ -1047,23 +1127,25 @@ function sampleState() {
     accounts: [
       { name: 'Checking', balance: 4850, updated: d(0) },
       { name: 'High-yield savings', balance: 21500, updated: d(0) },
-      { name: '401(k)', balance: 62000, include: false, updated: d(0) }
+      { name: '401(k)', balance: 62000, include: false, updated: d(0) },
+      { name: 'Travel Rewards Card', type: 'credit', balance: 0, limit: 15000, apr: 24.99, updated: d(0) },
+      { name: 'Cash Back Card', type: 'credit', balance: 450, limit: 8000, apr: 21.49, updated: d(0) }
     ],
     bills: [
       { name: 'Rent', amount: 1950, freq: 'monthly', next: nextDom(1), category: 'Housing', essential: true },
-      { name: 'Electric & gas', amount: 165, freq: 'monthly', next: nextDom(12), category: 'Utilities', essential: true },
-      { name: 'Internet', amount: 70, freq: 'monthly', next: nextDom(18), category: 'Phone & internet', essential: true },
-      { name: 'Phone', amount: 85, freq: 'monthly', next: nextDom(22), category: 'Phone & internet', essential: true },
+      { name: 'Electric & gas', amount: 165, freq: 'monthly', next: nextDom(12), category: 'Utilities', essential: true , card: true },
+      { name: 'Internet', amount: 70, freq: 'monthly', next: nextDom(18), category: 'Phone & internet', essential: true , card: true },
+      { name: 'Phone', amount: 85, freq: 'monthly', next: nextDom(22), category: 'Phone & internet', essential: true , card: true },
       { name: 'Health insurance (COBRA)', amount: 640, freq: 'monthly', next: nextDom(1), category: 'Insurance', essential: true },
       { name: 'Car payment', amount: 389, freq: 'monthly', next: nextDom(15), category: 'Transportation', essential: true, end: inMonths(14) },
-      { name: 'Car insurance', amount: 132, freq: 'monthly', next: nextDom(8), category: 'Insurance', essential: true },
-      { name: 'Gas', amount: 60, freq: 'biweekly', next: d(3), category: 'Transportation', essential: true },
-      { name: 'Groceries', amount: 140, freq: 'weekly', next: d(2), category: 'Food', essential: true },
+      { name: 'Car insurance', amount: 132, freq: 'monthly', next: nextDom(8), category: 'Insurance', essential: true , card: true },
+      { name: 'Gas', amount: 60, freq: 'biweekly', next: d(3), category: 'Transportation', essential: true , card: true },
+      { name: 'Groceries', amount: 140, freq: 'weekly', next: d(2), category: 'Food', essential: true , card: true },
       { name: 'Student loan', amount: 285, freq: 'monthly', next: nextDom(25), category: 'Debt', essential: true },
-      { name: 'Eating out', amount: 180, freq: 'monthly', next: nextDom(28), category: 'Food', essential: false },
-      { name: 'Streaming services', amount: 48, freq: 'monthly', next: nextDom(5), category: 'Subscriptions', essential: false },
-      { name: 'Gym', amount: 55, freq: 'monthly', next: nextDom(3), category: 'Personal', essential: false },
-      { name: 'Renters insurance', amount: 168, freq: 'annual', next: inMonths(4), category: 'Insurance', essential: true }
+      { name: 'Eating out', amount: 180, freq: 'monthly', next: nextDom(28), category: 'Food', essential: false , card: true },
+      { name: 'Streaming services', amount: 48, freq: 'monthly', next: nextDom(5), category: 'Subscriptions', essential: false , card: true },
+      { name: 'Gym', amount: 55, freq: 'monthly', next: nextDom(3), category: 'Personal', essential: false , card: true },
+      { name: 'Renters insurance', amount: 168, freq: 'annual', next: inMonths(4), category: 'Insurance', essential: true , card: true }
     ],
     income: [
       { name: 'Unemployment benefits', amount: 520, freq: 'weekly', next: d(4), end: d(4 + 7 * 20) },
@@ -1314,7 +1396,7 @@ document.addEventListener('click', e => {
   const find = () => listFor(kind).find(x => x.id === id);
   const editors = { bill: editBill, income: editIncome, account: editAccount };
   switch (a) {
-    case 'add': editors[kind](); break;
+    case 'add': editors[kind](undefined, el.dataset.type); break;
     case 'edit': { const it = find(); if (it) editors[kind](it); break; }
     case 'del': {
       const it = find(); if (!it) return;
@@ -1367,6 +1449,7 @@ document.addEventListener('change', e => {
   if (k === 'targetMonths') S.settings.targetMonths = Number.isFinite(v) ? Math.max(1, Math.min(60, Math.round(v))) : 12;
   else if (k === 'cushion') S.settings.cushion = Number.isFinite(v) ? round2(Math.max(0, Math.min(1e9, v))) : 0;
   else if (k === 'horizon') S.settings.horizon = [12, 24, 36].includes(v) ? v : 24;
+  else if (k === 'creditCap') S.settings.creditCap = Number.isFinite(v) ? Math.max(10, Math.min(100, Math.round(v))) : 80;
   render();
 });
 document.getElementById('importFile').addEventListener('change', e => {

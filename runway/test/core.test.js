@@ -128,7 +128,7 @@ test('normalizeState repairs and reports bad data', () => {
   assert.equal(s.bills[1].anchorDay, 30);
   assert.deepEqual(s.income, []);
   assert.deepEqual(s.checkins, [{ date: '2026-11-01', total: 6 }]);
-  assert.deepEqual(s.settings, { cushion: 0, targetMonths: 60, horizon: 24, lastExport: '' });
+  assert.deepEqual(s.settings, { cushion: 0, targetMonths: 60, horizon: 24, lastExport: '', creditCap: 80 });
   assert.ok(warnings.length >= 6, warnings.join('\n'));
 });
 
@@ -158,4 +158,106 @@ test('upcoming lists overdue items and running balances in order', () => {
     ['2026-11-20', 200, 10150, false],
     ['2026-12-05', -50, 10100, false]
   ]);
+});
+
+/* ---------- credit ---------- */
+const withCard = (over = {}) => state({
+  accounts: [
+    { id: 'a', name: 'Checking', balance: 3000 },
+    { id: 'c', name: 'Card', type: 'credit', balance: 0, limit: 10000, apr: 24 }
+  ],
+  ...over
+});
+
+test('credit cards are not cash, and carry limit and APR', () => {
+  const s = withCard();
+  assert.equal(C.cashTotal(s), 3000);
+  const card = s.accounts.find(a => a.type === 'credit');
+  assert.deepEqual([card.limit, card.apr, card.balance], [10000, 24, 0]);
+  assert.deepEqual(C.creditSummary(s), { cards: 1, limit: 10000, owed: 0, usable: 8000, cap: 0.8 });
+  const bad = C.normalizeState({ accounts: [{ type: 'credit', balance: -50, limit: 'x', apr: 400 }] }).state.accounts[0];
+  assert.deepEqual([bad.balance, bad.limit, bad.apr], [0, 0, 100]);
+});
+
+test('without credit, card-eligible bills still come out of cash', () => {
+  const s = withCard({ bills: [{ name: 'Phone', amount: 1000, freq: 'monthly', next: '2026-11-10', card: true }] });
+  const r = C.simulate(s, { days: 120 }, TODAY);
+  assert.equal(r.bal[2], 2000);
+  assert.equal(r.charged, 0);
+  assert.equal(C.iso(C.addDays(TODAY, r.out)), '2027-02-10');
+});
+
+test('with credit, card-eligible bills go on the card and cash is kept for the rest', () => {
+  const s = withCard({ bills: [{ name: 'Phone', amount: 1000, freq: 'monthly', next: '2026-11-10', card: true }] });
+  const r = C.simulate(s, { useCredit: true, days: 40 }, TODAY);
+  assert.equal(r.bal[2], 3000, 'cash untouched on Nov 10');
+  assert.equal(r.charged, 2000, 'Nov 10 and Dec 10 both charged');
+  const later = C.simulate(s, { useCredit: true, creditFrom: 5, days: 40 }, TODAY);
+  assert.equal(later.bal[2], 2000, 'before creditFrom, cash pays');
+});
+
+test('planCredit reaches the longest runway while starting card use as late as it can', () => {
+  const s = withCard({
+    accounts: [{ id: 'a', name: 'Checking', balance: 6000 }, { id: 'c', name: 'Card', type: 'credit', balance: 0, limit: 20000, apr: 24 }],
+    bills: [
+      { name: 'Rent', amount: 1000, freq: 'monthly', next: '2026-12-01' },
+      { name: 'Groceries', amount: 600, freq: 'monthly', next: '2026-11-15', card: true }
+    ]
+  });
+  const none = C.simulate(s, { days: 730 }, TODAY);
+  const early = C.simulate(s, { useCredit: true, days: 730 }, TODAY);
+  const plan = C.planCredit(s, { days: 730 }, TODAY);
+  assert.ok(early.out > none.out, 'credit extends the runway');
+  assert.equal(plan.out, early.out, 'plan keeps the longest runway');
+  assert.ok(plan.creditFrom > 0, 'and starts card use later');
+  assert.ok(plan.interest < early.interest, `with less interest (${plan.interest} < ${early.interest})`);
+});
+
+test('card balances accrue interest and require monthly minimums from cash', () => {
+  const s = withCard({ accounts: [{ id: 'a', name: 'Checking', balance: 3000 }, { id: 'c', name: 'Card', type: 'credit', balance: 5000, limit: 10000, apr: 24 }] });
+  const r = C.simulate(s, { days: 31 }, TODAY);
+  // Day 30: interest 5000 * 2% = 100; minimum = 1% of 5100 + 100 = 151.
+  assert.equal(r.interest, 100);
+  assert.equal(Math.round(r.minimums), 151);
+  assert.equal(Math.round(r.bal[31]), 3000 - 151);
+  assert.equal(Math.round(r.owed[31]), 5100 - 151);
+  assert.equal(C.minimumPayment(10, 0), 10);       // never more than owed
+  assert.equal(C.minimumPayment(500, 0), 25);      // $25 floor
+});
+
+test('credit stops at the cap, and bills a card cannot pay end the runway', () => {
+  const s = withCard({
+    settings: { cushion: 0, creditCap: 50 },
+    bills: [
+      { name: 'Groceries', amount: 2000, freq: 'monthly', next: '2026-11-10', card: true },
+      { name: 'Rent', amount: 1000, freq: 'monthly', next: '2026-11-15' }
+    ]
+  });
+  const r = C.simulate(s, { useCredit: true, days: 730 }, TODAY);
+  const max = Math.max(...r.owed);
+  assert.ok(max <= 5000 + 1, `card balance stays near the 50% cap (max ${max})`);
+  assert.ok(r.out > 0);
+  const noCredit = C.simulate(s, { days: 730 }, TODAY);
+  assert.ok(r.out > noCredit.out, 'credit extends the runway');
+});
+
+test('cheapest card is used first', () => {
+  const s = state({
+    accounts: [
+      { id: 'a', name: 'Checking', balance: 0 },
+      { id: 'hi', name: 'High', type: 'credit', balance: 0, limit: 5000, apr: 29 },
+      { id: 'lo', name: 'Low', type: 'credit', balance: 0, limit: 5000, apr: 0 }
+    ],
+    settings: { creditCap: 100 },
+    bills: [{ name: 'Phone', amount: 100, freq: 'once', next: '2026-11-10', card: true }]
+  });
+  const r = C.simulate(s, { useCredit: true, days: 40 }, TODAY);
+  assert.equal(r.interest, 0, 'a 0% card accrues nothing');
+});
+
+test('no credit accounts: results identical with or without useCredit', () => {
+  const s = state({ bills: [{ name: 'Rent', amount: 2000, freq: 'monthly', next: '2026-12-01', card: true }] });
+  const a = C.simulate(s, { days: 400 }, TODAY), b = C.simulate(s, { useCredit: true, days: 400 }, TODAY);
+  assert.deepEqual([...a.bal], [...b.bal]);
+  assert.equal(a.out, b.out);
 });

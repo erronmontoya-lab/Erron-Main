@@ -119,7 +119,7 @@
       income: [],
       checkins: [],
       activity: [],
-      settings: { cushion: 0, targetMonths: 12, horizon: 24, lastExport: '' }
+      settings: { cushion: 0, targetMonths: 12, horizon: 24, lastExport: '', creditCap: 80 }
     };
   }
 
@@ -151,13 +151,21 @@
     for (const a of arr(raw.accounts, 'accounts')) {
       const bal = finite(a.balance, NaN);
       if (!Number.isFinite(bal)) warnings.push(`Account "${str(a.name) || '?'}" had an invalid balance; set to $0.`);
-      s.accounts.push({
+      const isCredit = a.type === 'credit';
+      const rec = {
         id: id(a.id),
-        name: str(a.name) || 'Account',
-        balance: round2(Math.max(-MAX_AMOUNT, Math.min(MAX_AMOUNT, Number.isFinite(bal) ? bal : 0))),
+        name: str(a.name) || (isCredit ? 'Credit card' : 'Account'),
+        type: isCredit ? 'credit' : 'cash',
+        // For a credit card, balance is the amount owed (never negative).
+        balance: round2(Math.max(isCredit ? 0 : -MAX_AMOUNT, Math.min(MAX_AMOUNT, Number.isFinite(bal) ? bal : 0))),
         include: a.include !== false,
         updated: isISODate(a.updated) ? a.updated : ''
-      });
+      };
+      if (isCredit) {
+        rec.limit = round2(Math.max(0, Math.min(MAX_AMOUNT, finite(a.limit, 0))));
+        rec.apr = Math.round(Math.max(0, Math.min(100, finite(a.apr, 0))) * 100) / 100;
+      }
+      s.accounts.push(rec);
     }
 
     const flow = (list, name, isBill) => {
@@ -181,7 +189,7 @@
           anchorDay: MONTH_BASED[freq] ? clampInt(it.anchorDay, 1, 31, parse(it.next).getDate()) : undefined
         };
         if (rec.anchorDay === undefined) delete rec.anchorDay;
-        if (isBill) { rec.category = str(it.category, 40) || 'Other'; rec.essential = it.essential !== false; }
+        if (isBill) { rec.category = str(it.category, 40) || 'Other'; rec.essential = it.essential !== false; rec.card = it.card === true; }
         out.push(rec);
       }
       return out;
@@ -206,12 +214,26 @@
     s.settings.targetMonths = clampInt(st.targetMonths, 1, 60, 12);
     s.settings.horizon = [12, 24, 36].includes(+st.horizon) ? +st.horizon : 24;
     s.settings.lastExport = isISODate(st.lastExport) ? st.lastExport : '';
+    s.settings.creditCap = clampInt(st.creditCap, 10, 100, 80);
 
     return { state: s, warnings };
   }
 
   /* ---------- projections ---------- */
-  const cashTotal = s => round2(s.accounts.reduce((t, a) => t + (a.include === false ? 0 : finite(a.balance)), 0));
+  const isCash = a => a.type !== 'credit';
+  const cashTotal = s => round2(s.accounts.reduce((t, a) => t + (a.include === false || !isCash(a) ? 0 : finite(a.balance)), 0));
+  /** Credit cards counted toward runway, with what is still usable under the cap. */
+  function creditSummary(s) {
+    const cap = finite(s.settings && s.settings.creditCap, 80) / 100;
+    const cards = s.accounts.filter(a => a.type === 'credit' && a.include !== false);
+    const limit = cards.reduce((t, a) => t + finite(a.limit), 0);
+    const owed = cards.reduce((t, a) => t + finite(a.balance), 0);
+    const usable = cards.reduce((t, a) => t + Math.max(0, finite(a.limit) * cap - finite(a.balance)), 0);
+    return { cards: cards.length, limit: round2(limit), owed: round2(owed), usable: round2(usable), cap };
+  }
+  /** A typical card minimum: 1% of the balance plus that month's interest, at least $25. */
+  const MIN_PAYMENT_FLOOR = 25;
+  const minimumPayment = (owed, interest) => Math.min(owed, Math.max(MIN_PAYMENT_FLOOR, owed * 0.01 + interest));
   const monthlyOf = (list, filter = () => true) =>
     round2(list.filter(filter).reduce((t, i) => t + finite(i.amount) * (FREQ[i.freq] ? FREQ[i.freq].perMonth : 0), 0));
 
@@ -220,29 +242,83 @@
    * unconfirmed income) is applied on day 0. `out` is the first day the balance is
    * below the cushion, or -1 if it never is within `days`.
    */
-  function simulate(s, { essentialOnly = false, extraMonthly = 0, days = 730 } = {}, today = new Date()) {
+  function simulate(s, { essentialOnly = false, extraMonthly = 0, days = 730, useCredit = false, creditFrom = 0 } = {}, today = new Date()) {
     days = Math.max(0, Math.min(MAX_DAYS, Math.round(finite(days, 730))));
     const t0 = startOfDay(today);
     const end = addDays(t0, days);
-    const delta = new Float64Array(days + 1);
+    const cashOut = new Float64Array(days + 1);   // bills that must be paid from cash
+    const cardOut = new Float64Array(days + 1);   // bills that a card can pay
+    const cashIn = new Float64Array(days + 1);
     for (const b of s.bills) {
       if (essentialOnly && !b.essential) continue;
-      for (const d of occurrences(b, end)) delta[Math.max(0, daysBetween(t0, d))] -= finite(b.amount);
+      const target = b.card ? cardOut : cashOut;
+      for (const d of occurrences(b, end)) target[Math.max(0, daysBetween(t0, d))] += finite(b.amount);
     }
     for (const i of s.income) {
-      for (const d of occurrences(i, end)) delta[Math.max(0, daysBetween(t0, d))] += finite(i.amount);
+      for (const d of occurrences(i, end)) cashIn[Math.max(0, daysBetween(t0, d))] += finite(i.amount);
     }
     extraMonthly = finite(extraMonthly);
-    if (extraMonthly) for (let k = 1; Math.round(k * MONTH) <= days; k++) delta[Math.round(k * MONTH)] += extraMonthly;
+    if (extraMonthly) for (let k = 1; Math.round(k * MONTH) <= days; k++) cashIn[Math.round(k * MONTH)] += extraMonthly;
+
+    /* Cards: existing balances always accrue interest and need minimum
+       payments. With useCredit, from day `creditFrom` on, bills a card can
+       pay go on the cheapest card with room, so cash is kept for bills that
+       must be paid in cash. planCredit() picks the latest such start. */
+    const capPct = finite(s.settings && s.settings.creditCap, 80) / 100;
+    const cards = s.accounts.filter(a => a.type === 'credit' && a.include !== false)
+      .map(a => ({ owed: Math.max(0, finite(a.balance)), cap: finite(a.limit) * capPct, apr: finite(a.apr) / 100 }))
+      .sort((x, y) => x.apr - y.apr);
+    const payDays = new Set();
+    for (let k = 1; Math.round(k * MONTH) <= days; k++) payDays.add(Math.round(k * MONTH));
+
     const bal = new Float64Array(days + 1);
+    const owedByDay = new Float64Array(days + 1);
     const cushion = finite(s.settings && s.settings.cushion);
-    let b = cashTotal(s), out = -1;
+    let b = cashTotal(s), out = -1, interest = 0, charged = 0, minimums = 0;
     for (let d = 0; d <= days; d++) {
-      b += delta[d];
+      b += cashIn[d] - cashOut[d];
+      let due = cardOut[d];
+      if (due && useCredit && cards.length && d >= creditFrom) {
+        for (const c of cards) {
+          if (due <= 0) break;
+          const put = Math.max(0, Math.min(due, c.cap - c.owed));
+          c.owed += put; due -= put; charged += put;
+        }
+      }
+      b -= due;                                      // whatever no card could take
+      if (payDays.has(d)) {
+        for (const c of cards) {
+          if (c.owed <= 0.005) continue;
+          const int = c.owed * c.apr / 12;
+          c.owed += int; interest += int;
+          const pay = minimumPayment(c.owed, int);
+          c.owed -= pay; b -= pay; minimums += pay;
+        }
+      }
       bal[d] = b;
+      owedByDay[d] = cards.reduce((t, c) => t + c.owed, 0);
       if (out < 0 && b < cushion - 0.005) out = d;
     }
-    return { bal, out, days };
+    return { bal, out, days, owed: owedByDay, interest: round2(interest), charged: round2(charged), minimums: round2(minimums), creditFrom: useCredit ? creditFrom : null };
+  }
+
+  /**
+   * The credit plan that lasts longest, starting card use as late as
+   * possible to keep interest down: binary-search the latest start day whose
+   * runway still matches the best runway (charging from day 0).
+   */
+  function planCredit(s, opts = {}, today = new Date()) {
+    const run = from => simulate(s, { ...opts, useCredit: true, creditFrom: from }, today);
+    const best = run(0);
+    const score = r => (r.out < 0 ? Infinity : r.out);
+    const target = score(best);
+    let lo = 0, hi = best.out < 0 ? best.days : best.out;
+    if (score(run(hi)) >= target) return run(hi);
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (score(run(mid)) >= target) lo = mid; else hi = mid;
+    }
+    return run(lo);
   }
 
   /** Smallest extra monthly amount (income or cuts) that keeps cash above the cushion for `months`. */
@@ -276,6 +352,6 @@
     pad, iso, isISODate, parse, startOfDay, addDays, addMonths, daysBetween,
     nthOccurrence, occurrences, nextAfter, isActive,
     round2, finite, uid, blank, normalizeState,
-    cashTotal, monthlyOf, simulate, gapFor, upcoming
+    cashTotal, creditSummary, minimumPayment, monthlyOf, simulate, planCredit, gapFor, upcoming
   };
 });

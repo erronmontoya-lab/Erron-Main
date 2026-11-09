@@ -22,6 +22,7 @@ The app is dark-only, designed in the style of Apple's own apps, with the system
 - **Essentials-only runway**: mark bills as essential to see how long you'd last on a bare-bones budget.
 - **Income that ends**: give unemployment benefits, severance or a short freelance contract an end date. The projection stops counting it after that date and warns you 60 days ahead.
 - **Next 30 days**: everything due, with your balance after each item. Click **Paid** or **Received** to update the account balance and move the item to its next date, or **Skip** to move it without touching balances.
+- **Credit backstop**: add credit cards (amount owed, limit, APR) and mark the bills a card can pay. Runway shows a second runway with credit: card-eligible bills go on the cheapest card with room, starting as late as possible while still reaching the longest runway, so interest stays low. Interest and minimum payments (1% of the balance plus interest, at least $25) are charged monthly and come out of cash. Only part of each limit is counted (80% by default, set in Settings), since card companies can cut limits without notice. Cards never count as cash.
 - **Runway goal**: pick a target (say 12 months) and see how much extra income or spending cuts per month you'd need to get there.
 - **Balance check-ins**: once a week, enter what your accounts show. The chart plots your real balance next to the projection.
 - **Where the money goes**: monthly spending by category.
