@@ -281,6 +281,24 @@ async function run(name, fn) {
     await ctx.close();
   });
 
+  await run('Add to Home Screen opens steps for the device and copies the link', async () => {
+    const ctx = await browser.newContext({ ...require('playwright').devices['iPhone 13'], permissions: ['clipboard-read', 'clipboard-write'] });
+    const p = await ctx.newPage();
+    const errors = []; p.on('pageerror', e => errors.push(e.message));
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    await p.click('[data-tab=settings]');
+    await p.click('[data-action=homescreen]');
+    const text = await p.locator('#dlg').innerText();
+    assert.match(text, /IPHONE OR IPAD/i);
+    assert.match(text, /Add to Home Screen/);
+    assert.match(text, /claude\.ai\/artifact\//);
+    await p.click('#dlg [data-action=copylink]');
+    await p.waitForFunction(() => /Copied|Link selected/.test(document.querySelector('#dlg [data-action=copylink]').textContent), null, { timeout: 3000 });
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
   await run('phone width has no sideways scroll', async () => {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
     const p = await ctx.newPage();

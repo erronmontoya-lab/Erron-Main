@@ -749,20 +749,20 @@ function settingsView() {
 
     <div class="sect"><span>Home Screen</span></div>
     <div class="group">
-      <div class="list-row has-tile">${tile('share', 'gray')}<div class="body"><div class="t">Add to Home Screen</div><div class="s" style="white-space:normal">On iPhone or iPad, open this page in Safari, tap Share, then Add to Home Screen. On Android, use Chrome’s menu, then Add to Home screen.</div></div></div>
+      <button type="button" class="list-row has-tile" data-action="homescreen">${tile('share', 'blue')}<div class="body"><div class="t">Add to Home Screen</div><div class="s">Open Runway like an app, in one tap</div></div>${ic('chevron', 'chev')}</button>
     </div>
 
     <div class="sect"><span>Projection</span></div>
     <div class="group">
-      <label class="list-row has-tile">${tile('shield', 'green')}<div class="body">Safety Cushion</div><span class="value" style="display:flex;align-items:center;gap:2px">$<input type="number" id="setCushion" min="0" step="100" value="${S.settings.cushion}" data-setting="cushion" aria-label="Safety cushion in dollars"></span></label>
+      <label class="list-row has-tile">${tile('shield', 'green')}<div class="body">Safety Cushion</div><span class="value"><input type="text" inputmode="decimal" id="setCushion" value="${money(S.settings.cushion)}" data-setting="cushion" aria-label="Safety cushion in dollars"></span></label>
       <label class="list-row has-tile">${tile('calendar', 'red')}<div class="body">Projection Length</div><span class="value"><select id="setHorizon" data-setting="horizon" aria-label="Projection length">${[12, 24, 36].map(m => `<option value="${m}" ${S.settings.horizon === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
       <label class="list-row has-tile">${tile('target', 'orange')}<div class="body">Runway Goal</div><span class="value"><select data-setting="targetMonths" aria-label="Runway goal">${[3, 6, 9, 12, 18, 24].concat([S.settings.targetMonths]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(m => `<option value="${m}" ${S.settings.targetMonths === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></span></label>
       <label class="list-row has-tile">${tile('accounts', 'blue')}<div class="body">Use Cards</div><span class="value"><select data-setting="creditStrategy" aria-label="When to use credit cards">
-        <option value="late" ${S.settings.creditStrategy !== 'now' ? 'selected' : ''}>Only when cash runs low</option>
-        <option value="now" ${S.settings.creditStrategy === 'now' ? 'selected' : ''}>Carry a balance from now</option></select></span></label>
+        <option value="late" ${S.settings.creditStrategy !== 'now' ? 'selected' : ''}>When cash runs low</option>
+        <option value="now" ${S.settings.creditStrategy === 'now' ? 'selected' : ''}>Carry from now</option></select></span></label>
       <label class="list-row has-tile">${tile('accounts', 'indigo')}<div class="body">Use Up To</div><span class="value"><select data-setting="creditCap" aria-label="Share of each card limit to use">${[30, 50, 60, 70, 80, 90, 100].concat([S.settings.creditCap]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map(p => `<option value="${p}" ${S.settings.creditCap === p ? 'selected' : ''}>${p}% of card limits</option>`).join('')}</select></span></label>
     </div>
-    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0. Card companies can lower limits without notice, so the credit runway counts only part of each limit. “Only when cash runs low” starts carrying card balances as late as possible and costs the least interest; “Carry a balance from now” matches putting card bills on the card today.</div>
+    <div class="sect-foot">Runway ends when cash falls below your cushion, not at $0. Card companies can lower limits without notice, so the credit runway counts only part of each limit. “When cash runs low” starts carrying card balances as late as possible and costs the least interest; “Carry from now” matches putting card bills on the card today.</div>
 
     <div class="sect"><span>Backup</span></div>
     <div class="group">
@@ -1196,6 +1196,58 @@ function settle(kind, id) {
 }
 
 /* =====================================================================
+ * Add to Home Screen
+ * ===================================================================== */
+const APP_URL = 'https://claude.ai/artifact/WAduFqicBoRPJeEwuvM7ci';
+function platform() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  return 'desktop';
+}
+const STEPS = {
+  ios: ['iPhone or iPad', [
+    'Tap <b>Copy Link</b> below.',
+    'Open <b>Safari</b>, paste the link into the address bar and go. Sign in to claude.ai if asked. (Already reading this in Safari? Skip to step 3.)',
+    `Tap the <b>Share</b> button ${ic('upload')} at the bottom of the screen.`,
+    'Scroll down, tap <b>Add to Home Screen</b>, name it <b>Runway</b>, then tap <b>Add</b>.'
+  ]],
+  android: ['Android', [
+    'Tap <b>Copy Link</b> below.',
+    'Open <b>Chrome</b>, paste the link and go. Sign in to claude.ai if asked.',
+    'Tap the <b>⋮</b> menu, then <b>Add to Home screen</b>, name it <b>Runway</b>, then tap <b>Add</b>.'
+  ]],
+  desktop: ['Computer', [
+    'Tap <b>Copy Link</b> below and open it in your browser.',
+    '<b>Chrome or Edge:</b> menu, then <b>Cast, save and share</b> (or <b>Apps</b>), then <b>Install page as app</b> or <b>Create shortcut</b>.',
+    '<b>Safari on Mac:</b> File, then <b>Add to Dock</b>.'
+  ]]
+};
+function homeScreenDialog() {
+  const mine = platform();
+  const list = (steps) => `<div class="group steps-list">${steps.map((t, i) => `<div class="list-row"><span class="step-n">${i + 1}</span><div class="body" style="white-space:normal">${t}</div></div>`).join('')}</div>`;
+  const others = Object.entries(STEPS).filter(([k]) => k !== mine);
+  openDialog('Add to Home Screen', `
+    <div class="lead">Runway then opens from an icon like any app, already signed in.</div>
+    <div class="group">
+      <div class="list-row"><div class="body"><div class="s" style="white-space:normal;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all" id="appLink">${esc(APP_URL)}</div></div><button type="button" class="btn sm primary" data-action="copylink" style="flex:none">Copy Link</button></div>
+    </div>
+    ${gap}<div class="sect"><span>${STEPS[mine][0]}</span></div>${list(STEPS[mine][1])}
+    ${note('The icon shows the Claude logo, since the page lives on claude.ai. The name is whatever you type, so use Runway.')}
+    ${others.map(([, [label, steps]]) => `${gap}<details class="other-steps"><summary>${ic('chevron')}${label}</summary>${list(steps)}</details>`).join('')}
+  `, 'Done', () => ({}));
+}
+async function copyLink(btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(APP_URL); ok = true; } catch (e) {}
+  if (!ok) {
+    const el = document.getElementById('appLink');
+    if (el) { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  }
+  if (btn) { btn.textContent = ok ? 'Copied' : 'Link selected'; setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy Link'; }, 2500); }
+}
+
+/* =====================================================================
  * Sample data
  * ===================================================================== */
 function sampleState() {
@@ -1531,6 +1583,8 @@ document.addEventListener('click', e => {
     case 'checkin': checkinDialog(); break;
     case 'delck': commit('Check-in deleted.', () => { S.checkins = S.checkins.filter(c => c.date !== el.dataset.date); }); break;
     case 'tab': if (VIEWS[el.dataset.tab]) { ui.view = el.dataset.tab; render(); window.scrollTo({ top: 0 }); } break;
+    case 'homescreen': homeScreenDialog(); break;
+    case 'copylink': copyLink(el); break;
     case 'toggle-checkins': ui.showAllCheckins = !ui.showAllCheckins; render(); break;
     case 'toggle-upcoming': ui.showAllUpcoming = !ui.showAllUpcoming; render(); break;
     case 'goal': S.settings.targetMonths = Math.max(1, Math.min(60, S.settings.targetMonths + (+el.dataset.d || 0))); render(); break;
@@ -1562,7 +1616,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('change', e => {
   const k = e.target.dataset && e.target.dataset.setting;
   if (!k) return;
-  const v = finite(e.target.value, NaN);
+  const v = finite(String(e.target.value).replace(/[$,\s]/g, ''), NaN);
   if (k === 'targetMonths') S.settings.targetMonths = Number.isFinite(v) ? Math.max(1, Math.min(60, Math.round(v))) : 12;
   else if (k === 'cushion') S.settings.cushion = Number.isFinite(v) ? round2(Math.max(0, Math.min(1e9, v))) : 0;
   else if (k === 'horizon') S.settings.horizon = [12, 24, 36].includes(v) ? v : 24;
