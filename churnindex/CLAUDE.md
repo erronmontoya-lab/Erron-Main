@@ -65,6 +65,7 @@ Assumes about 25 founder hours a week. Contract engineer budget about 40 to 80 h
 - Not a product build. A local script or notebook that takes a Stripe CSV export or a read-only test key and produces the scorecard metrics, so Erron can email a PDF to founders.
 - **Done means:** 10 real accounts scored; each founder confirms the numbers match their own Stripe dashboard within an acceptable tolerance.
 - **Why:** validates demand and the churn math before any public product.
+- **Decided (Nov 11, 2026):** CSV exports first (read-only key route later if needed); Python with pytest and fpdf2; "match" means within 2% of the founder's Stripe dashboard. Code lives in `churnindex/phase0/`; see its README.
 
 ### Phase 1: Free Scorecard (target: Dec 11, 2026)
 In scope:
