@@ -47,8 +47,6 @@ npm run build   # production build into dist/
 
 ## Needs Erron before launch
 
-- Founder photo and bio (brief section 14, item 5). The bio line
-  "Co-founded two companies that were acquired" is from the mock and is not
-  in the brief. Confirm it.
+- Founder photo (brief section 14, item 5).
 - Keep or drop the 60-day guarantee (`SHOW_GUARANTEE` in `src/config.ts`).
 - Verify the comparison-table claims about competitors (section 14, item 6).

@@ -17,10 +17,10 @@ export function Founder() {
           </h2>
           <div className="flex flex-col gap-1">
             <span className="text-base font-bold">Erron Montoya, founder</span>
-            {/* Open decision: bio wording (brief section 14, item 5). Confirm every claim before launch. */}
+            {/* Bio wording confirmed by Erron, Nov 11, 2026. */}
             <span className="text-[15px] text-muted">
               Formerly Customer Retention Lead at AWS. Led lifecycle marketing for [solidcore] and demand generation for
-              Grammarly for Business. Co-founded two companies that were acquired.
+              Grammarly for Business.
             </span>
           </div>
         </div>
