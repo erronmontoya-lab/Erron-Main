@@ -409,6 +409,16 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); backdrop-filter: blur(4px); }
 .list-row .value input { min-width: 0; width: 100px; }
 .list-row .value select { min-width: 0; max-width: 100%; }
 
+/* a row with its own action button: tap the row to edit, the button to act */
+.list-row.split { padding: 0; gap: 0; }
+.list-row.split > .row-main { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: pointer;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 9px 10px 9px 16px; min-height: 52px; }
+.list-row.split > .row-main:hover { background: rgba(255, 255, 255, .04); }
+.list-row.split > .row-main:active { background: rgba(255, 255, 255, .08); }
+.list-row.split > .row-main:focus-visible { outline: none; box-shadow: inset 0 0 0 3px rgba(10, 132, 255, .6); }
+.list-row.split > .row-pay { flex: none; margin-right: 14px; gap: 4px; padding: 0 10px; }
+.list-row.split > .row-pay svg.i { width: 13px; height: 13px; stroke-width: 2.8; }
+
 /* rows that are buttons */
 button.list-row { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: pointer; }
 button.list-row:hover { background: rgba(255, 255, 255, .04); }

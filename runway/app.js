@@ -622,18 +622,20 @@ function billsView() {
       </div>
     </div>
     <div class="group">
-    ${rows.length ? rows.map(b => `<button type="button" class="list-row has-tile" data-action="edit" data-kind="bill" data-id="${esc(b.id)}">
-        ${catTile(b.category)}
-        <div class="body">
-          <div class="t">${esc(b.name)}${b.essential ? '' : '<span class="tag">Extra</span>'}${b.card ? '<span class="tag blue">Card OK</span>' : ''}</div>
-          <div class="s">${FREQ[b.freq].label} · ${esc(b.category)}${b.end ? ` · until ${safeDate(b.end, { month: 'short', year: 'numeric' })}` : ''}</div>
-        </div>
-        <div class="end"><div class="amt">${money(b.amount, true)}</div><div class="foot13">${dueText(b, 'bill')}</div></div>
-        ${ic('chevron', 'chev')}
-      </button>`).join('')
+    ${rows.length ? rows.map(b => `<div class="list-row has-tile split">
+        <button type="button" class="row-main" data-action="edit" data-kind="bill" data-id="${esc(b.id)}" aria-label="Edit ${esc(b.name)}">
+          ${catTile(b.category)}
+          <div class="body">
+            <div class="t">${esc(b.name)}${b.essential ? '' : '<span class="tag">Extra</span>'}${b.card ? '<span class="tag blue">Card OK</span>' : ''}</div>
+            <div class="s">${FREQ[b.freq].label} · ${esc(b.category)}${b.end ? ` · until ${safeDate(b.end, { month: 'short', year: 'numeric' })}` : ''}</div>
+          </div>
+          <div class="end"><div class="amt">${money(b.amount, true)}</div><div class="foot13">${dueText(b, 'bill')}</div></div>
+        </button>
+        <button type="button" class="btn xs ${parse(b.next) <= today() ? 'primary' : 'tinted'} row-pay" data-action="settle" data-kind="bill" data-id="${esc(b.id)}" aria-label="Mark ${esc(b.name)} paid">${ic('check')}Paid</button>
+      </div>`).join('')
       : emptyHTML('bills', 'orange', S.bills.length ? 'No Matching Bills' : 'No Bills Yet', S.bills.length ? 'Try a different filter.' : 'Add rent, insurance, phone, loans, groceries and gas.', S.bills.length ? '' : `<button class="btn primary" data-action="add" data-kind="bill">${ic('plus')}Add Bill</button>`)}
     </div>
-    <div class="sect-foot">Tap a bill to edit or delete it. Mark bills as essential to see your bare-bones runway.</div>
+    <div class="sect-foot">Tap Paid when a bill goes through; it moves to its next due date and comes off the account you choose. Tap the bill itself to edit or delete it.</div>
   </div>`;
 }
 
@@ -1015,6 +1017,7 @@ function editBill(b) {
   const v = b || { name: '', amount: '', freq: 'monthly', next: iso(today()), category: 'Housing', essential: true, end: '' };
   const cats = [...new Set([...CATS, ...S.bills.map(x => x.category)])];
   openDialog(isNew ? 'New Bill' : 'Edit Bill', `
+    ${isNew ? '' : grp(`<button type="button" class="list-row action-row" data-action="settle" data-kind="bill" data-id="${esc(b.id)}">Mark Paid…</button>`) + gap}
     ${grp(frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(v.name)}" placeholder="Rent, insurance…">`),
           frow('Amount', `<input type="text" inputmode="decimal" name="amount" required value="${esc(v.amount)}" placeholder="$0.00">`))}
     ${gap}

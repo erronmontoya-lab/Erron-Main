@@ -75,12 +75,12 @@ async function run(name, fn) {
     await p.goto(URL);
     await p.click('text=Explore with sample data');
     await p.click('[data-tab=bills]');
-    const n = await p.locator('#app .list-row[data-kind=bill]').count();
+    const n = await p.locator('#app [data-action=edit][data-kind=bill]').count();
     assert.ok(n > 0);
-    await p.locator('#app .list-row[data-kind=bill]').first().click(); await p.click('dialog [data-action=del]');
-    assert.equal(await p.locator('#app .list-row[data-kind=bill]').count(), n - 1);
+    await p.locator('#app [data-action=edit][data-kind=bill]').first().click(); await p.click('dialog [data-action=del]');
+    assert.equal(await p.locator('#app [data-action=edit][data-kind=bill]').count(), n - 1);
     await p.click('#toast [data-undo]');
-    assert.equal(await p.locator('#app .list-row[data-kind=bill]').count(), n);
+    assert.equal(await p.locator('#app [data-action=edit][data-kind=bill]').count(), n);
     await ctx.close();
   });
 
@@ -178,9 +178,9 @@ async function run(name, fn) {
     await a.click('text=Explore with sample data');
     await a.click('[data-tab=bills]');
     await b.goto(URL);
-    const n = await b.locator('#app .list-row[data-kind=bill]').count();
-    await a.locator('#app .list-row[data-kind=bill]').first().click(); await a.click('dialog [data-action=del]');
-    await b.waitForFunction(m => document.querySelectorAll('#app .list-row[data-kind=bill]').length === m, n - 1, { timeout: 3000 });
+    const n = await b.locator('#app [data-action=edit][data-kind=bill]').count();
+    await a.locator('#app [data-action=edit][data-kind=bill]').first().click(); await a.click('dialog [data-action=del]');
+    await b.waitForFunction(m => document.querySelectorAll('#app [data-action=edit][data-kind=bill]').length === m, n - 1, { timeout: 3000 });
     await ctx.close();
   });
 
@@ -195,7 +195,7 @@ async function run(name, fn) {
     }
     await p.click('[data-tab=bills]');
     await p.click('[data-action=billfilter][data-f=extras]');
-    assert.ok(await p.locator('#app .list-row[data-kind=bill]').count() > 0);
+    assert.ok(await p.locator('#app [data-action=edit][data-kind=bill]').count() > 0);
     assert.deepEqual(errors, []);
     await ctx.close();
   });
@@ -295,6 +295,34 @@ async function run(name, fn) {
     assert.match(text, /claude\.ai\/artifact\//);
     await p.click('#dlg [data-action=copylink]');
     await p.waitForFunction(() => /Copied|Link selected/.test(document.querySelector('#dlg [data-action=copylink]').textContent), null, { timeout: 3000 });
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  await run('bills can be marked paid from the Bills page and from the edit sheet', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    await p.click('[data-tab=bills]');
+    const before = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), 'runway-tracker.v1');
+    const first = await p.locator('#app .row-pay').first().getAttribute('data-id');
+    const bill = before.bills.find(b => b.id === first);
+    const checking = before.accounts.find(a => a.name === 'Checking');
+    await p.locator('#app .row-pay').first().click();
+    assert.match(await p.locator('#dlg h3').innerText(), /Mark Paid/);
+    await p.selectOption('#dlg [name=acc]', checking.id);
+    await p.click('#dlg button.primary');
+    const after = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), 'runway-tracker.v1');
+    const moved = after.bills.find(b => b.id === first);
+    assert.ok(!moved || moved.next > bill.next, 'next date moved on (or a one-time bill was removed)');
+    assert.equal(after.accounts.find(a => a.id === checking.id).balance, Math.round((checking.balance - bill.amount) * 100) / 100);
+    assert.ok(after.activity.some(a => a.name === bill.name && a.amount === -bill.amount));
+    // from the edit sheet
+    await p.locator('#app [data-action=edit][data-kind=bill]').first().click();
+    await p.click('#dlg [data-action=settle]');
+    assert.match(await p.locator('#dlg h3').innerText(), /Mark Paid/);
+    await p.click('#dlg [data-close] >> nth=0');
     assert.deepEqual(errors, []);
     await ctx.close();
   });
