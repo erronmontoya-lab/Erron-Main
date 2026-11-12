@@ -18,6 +18,7 @@
   const MAX_ACTIVITY = 500;
   const MAX_CHECKINS = 1000;      // ~3 years daily, ~19 years weekly; keeps the synced copy small
   const MAX_ITEMS = 500;          // per list (accounts, bills, income)
+  const MAX_SCENARIOS = 30;
   const MAX_AMOUNT = 1e9;
 
   /* ---------- dates (local calendar days, never UTC) ---------- */
@@ -145,6 +146,7 @@
       income: [],
       checkins: [],
       activity: [],
+      scenarios: [],
       settings: { cushion: 0, targetMonths: 12, horizon: 24, lastExport: '', creditCap: 80, creditStrategy: 'late' }
     };
   }
@@ -239,6 +241,8 @@
     }
     s.checkins = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([date, total]) => ({ date, total })).slice(-MAX_CHECKINS);
 
+    s.scenarios = arr(raw.scenarios, 'scenarios').slice(0, MAX_SCENARIOS)
+      .map(x => normalizeScenario(x, id)).filter(Boolean);
     s.activity = arr(raw.activity, 'activity')
       .filter(a => isISODate(a.date) && Number.isFinite(finite(a.amount, NaN)))
       .map(a => ({ date: a.date, name: str(a.name) || 'Item', amount: round2(finite(a.amount)), account: str(a.account) }))
@@ -255,6 +259,71 @@
     s.settings.creditStrategy = st.creditStrategy === 'now' ? 'now' : 'late';
 
     return { state: s, warnings };
+  }
+
+  /* ---------- what-if scenarios ----------
+     Each scenario is a template with parameters. Applying scenarios returns
+     a changed copy of the state; the real data is never touched. */
+  const SCENARIO_TYPES = ['sell', 'bill', 'job', 'income', 'expense'];
+  function normalizeScenario(x, id) {
+    if (!x || !SCENARIO_TYPES.includes(x.type)) return null;
+    const p = x.p && typeof x.p === 'object' ? x.p : {};
+    const money = v => round2(Math.max(0, Math.min(MAX_AMOUNT, finite(v, 0))));
+    const date = v => (isISODate(v) ? v : '');
+    const ref = v => str(v, 40);
+    const freqOf = (v, allowOnce) => (FREQ[v] && (allowOnce || v !== 'once') ? v : 'monthly');
+    let q;
+    switch (x.type) {
+      case 'sell': q = { amount: money(p.amount), date: date(p.date), billId: ref(p.billId), payoff: money(p.payoff) }; if (!q.amount || !q.date) return null; break;
+      case 'bill': q = { billId: ref(p.billId), mode: p.mode === 'change' ? 'change' : 'pause', from: date(p.from), months: clampInt(p.months, 1, 36, 3), amount: money(p.amount) }; if (!q.billId || !q.from) return null; break;
+      case 'job': q = { amount: money(p.amount), freq: freqOf(p.freq), start: date(p.start), stopIncomeId: ref(p.stopIncomeId) }; if (!q.amount || !q.start) return null; break;
+      case 'income': q = { amount: money(p.amount), freq: freqOf(p.freq, true), start: date(p.start), end: date(p.end) }; if (!q.amount || !q.start) return null; break;
+      case 'expense': q = { amount: money(p.amount), freq: freqOf(p.freq, true), start: date(p.start), end: date(p.end), card: p.card === true, essential: p.essential !== false }; if (!q.amount || !q.start) return null; break;
+    }
+    return { id: id(x.id), name: str(x.name) || 'Scenario', type: x.type, on: x.on === true, p: q };
+  }
+
+  /** The first date an item is due on or after `from`, or null. */
+  function firstOnOrAfter(item, from) {
+    const d = occurrences(item, addDays(from, 400)).find(x => x >= from);
+    return d || null;
+  }
+  /** End an item the day before `from` (keeping an earlier end). */
+  function stopBefore(item, from) {
+    const e = iso(addDays(parse(from), -1));
+    item.end = isISODate(item.end) && item.end < e ? item.end : e;
+  }
+
+  function applyScenarios(s, list) {
+    const out = JSON.parse(JSON.stringify(s));
+    for (const sc of list) {
+      const p = sc.p, tag = 'wi-' + sc.id;
+      if (sc.type === 'sell') {
+        out.income.push({ id: tag, name: sc.name, amount: p.amount, freq: 'once', next: p.date, end: '' });
+        const b = out.bills.find(x => x.id === p.billId);
+        if (b) stopBefore(b, p.date);
+        if (p.payoff) out.bills.push({ id: tag + '-payoff', name: sc.name + ' (loan payoff)', amount: p.payoff, freq: 'once', next: p.date, end: '', category: 'Debt', essential: true, card: false });
+      } else if (sc.type === 'bill') {
+        const b = out.bills.find(x => x.id === p.billId);
+        if (!b) continue;
+        const resumeFrom = p.mode === 'pause' ? addMonths(parse(p.from), p.months) : parse(p.from);
+        const resume = firstOnOrAfter(b, resumeFrom);
+        const copy = resume && !(p.mode === 'change' && p.amount === 0)
+          ? { ...b, id: b.id + '-' + tag, next: iso(resume), amount: p.mode === 'change' ? p.amount : b.amount }
+          : null;
+        stopBefore(b, p.from);
+        if (copy) out.bills.push(copy);
+      } else if (sc.type === 'job') {
+        out.income.push({ id: tag, name: sc.name, amount: p.amount, freq: p.freq, next: p.start, end: '' });
+        const inc = out.income.find(x => x.id === p.stopIncomeId);
+        if (inc) stopBefore(inc, p.start);
+      } else if (sc.type === 'income') {
+        out.income.push({ id: tag, name: sc.name, amount: p.amount, freq: p.freq, next: p.start, end: p.freq === 'once' ? '' : p.end });
+      } else if (sc.type === 'expense') {
+        out.bills.push({ id: tag, name: sc.name, amount: p.amount, freq: p.freq, next: p.start, end: p.freq === 'once' ? '' : p.end, category: 'Other', essential: p.essential, card: p.card });
+      }
+    }
+    return out;
   }
 
   /* ---------- projections ---------- */
@@ -403,6 +472,6 @@
     pad, iso, isISODate, parse, startOfDay, addDays, addMonths, daysBetween,
     nthOccurrence, occurrences, nextAfter, isActive, benefitEnd, endOf, paymentsLeft,
     round2, finite, uid, blank, normalizeState,
-    MAX_CHECKINS, cashTotal, creditSummary, minimumPayment, monthlyMinimums, monthlyOf, simulate, planCredit, creditProjection, gapFor, upcoming
+    SCENARIO_TYPES, applyScenarios, MAX_CHECKINS, cashTotal, creditSummary, minimumPayment, monthlyMinimums, monthlyOf, simulate, planCredit, creditProjection, gapFor, upcoming
   };
 });

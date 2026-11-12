@@ -189,9 +189,9 @@ async function run(name, fn) {
     const p = await ctx.newPage();
     await p.goto(URL);
     await p.click('text=Explore with sample data');
-    for (const v of ['bills', 'income', 'accounts', 'history', 'settings', 'overview']) {
-      await p.click(`[data-tab=${v}]`);
-      assert.equal(await p.locator(`[data-tab=${v}][aria-current=page]`).count(), 1, v);
+    for (const v of ['bills', 'income', 'accounts', 'history', 'whatif', 'settings', 'overview']) {
+      await p.click(`[data-tab=${v}] >> nth=0`);                         // History opens from the Accounts page
+      assert.equal(await p.locator(`nav [data-tab=${v === 'history' ? 'accounts' : v}][aria-current=page]`).count(), 1, v);
     }
     await p.click('[data-tab=bills]');
     await p.click('[data-action=billfilter][data-f=extras]');
@@ -327,13 +327,63 @@ async function run(name, fn) {
     await ctx.close();
   });
 
+  await run('what-if: add scenarios, compare, switch off, edit and delete', async () => {
+    const { ctx, errors } = await newCtx();
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.click('text=Explore with sample data');
+    const real = await p.evaluate(k => localStorage.getItem(k), 'runway-tracker.v1');
+    await p.click('nav [data-tab=whatif]');
+    assert.match(await p.locator('#app').innerText(), /No Scenarios Yet/i);
+    // a mortgage-style pause on the biggest bill
+    await p.click('[data-action=scenario-new][data-type=bill]');
+    await p.fill('#dlg [name=name]', 'Rent deferral');
+    await p.selectOption('#dlg [name=billId]', { label: 'Rent ($1,950)' });
+    await p.fill('#dlg [name=months]', '3');
+    await p.click('#dlg button.primary');
+    // sell something
+    await p.click('[data-action=scenario-new][data-type=sell]');
+    await p.fill('#dlg [name=name]', 'Sell the car');
+    await p.fill('#dlg [name=amount]', '20,000');
+    await p.click('#dlg button.primary');
+    const txt = await p.locator('#app').innerText();
+    assert.match(txt, /With what-ifs on/);
+    assert.match(txt, /Rent deferral[\s\S]*Pauses Rent for 3 months/);
+    assert.match(txt, /\+\d+(\.\d)? months/, 'each shows its own impact');
+    assert.equal(await p.locator('#wiChart svg path').count() >= 2, true, 'two lines drawn');
+    // scenarios never touch the real data
+    const st = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), 'runway-tracker.v1');
+    assert.equal(st.scenarios.length, 2);
+    assert.deepEqual(st.bills, JSON.parse(real).bills);
+    // Summary shows the line while scenarios are on
+    await p.click('nav [data-tab=overview]');
+    assert.match(await p.locator('#app').innerText(), /With 2 what-ifs on: covered/);
+    // switch both off: the line goes away
+    await p.click('nav [data-tab=whatif]');
+    for (const box of await p.locator('[data-action=scenario-toggle]').all()) await box.click();
+    await p.click('nav [data-tab=overview]');
+    assert.doesNotMatch(await p.locator('#app').innerText(), /what-ifs? on/);
+    // edit, then delete
+    await p.click('nav [data-tab=whatif]');
+    await p.locator('[data-action=scenario-edit]').first().click();
+    await p.fill('#dlg [name=months]', '6');
+    await p.click('#dlg button.primary');
+    assert.match(await p.locator('#app').innerText(), /for 6 months/);
+    await p.locator('[data-action=scenario-edit]').first().click();
+    await p.click('#dlg [data-action=scenario-del]');
+    const after = await p.evaluate(k => JSON.parse(localStorage.getItem(k)), 'runway-tracker.v1');
+    assert.equal(after.scenarios.length, 1);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
   await run('phone width has no sideways scroll', async () => {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
     const p = await ctx.newPage();
     await p.goto(URL);
     await p.click('text=Explore with sample data');
-    for (const v of ['overview', 'bills', 'income', 'accounts', 'history', 'settings']) {
-      await p.click(`[data-tab=${v}]`);
+    for (const v of ['overview', 'bills', 'income', 'accounts', 'history', 'whatif', 'settings']) {
+      await p.click(`[data-tab=${v}] >> nth=0`);
       assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, v);
     }
     await ctx.close();

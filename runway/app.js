@@ -92,7 +92,7 @@ let S = loadState();
 let ui = { view: 'overview', range: 12, billFilter: 'all' };
 try {
   const u = JSON.parse(ls.get(UI_KEY) || 'null');
-  if (u && ['overview', 'bills', 'income', 'accounts', 'history', 'settings'].includes(u.view)) ui.view = u.view;
+  if (u && ['overview', 'bills', 'income', 'accounts', 'whatif', 'history', 'settings'].includes(u.view)) ui.view = u.view;
   if (u && [6, 12, 24, 36].includes(u.range)) ui.range = u.range;
   if (u && ['all', 'essential', 'extras'].includes(u.billFilter)) ui.billFilter = u.billFilter;
 } catch (e) {}
@@ -251,7 +251,8 @@ const VIEWS = {
   bills:    { title: 'Bills', short: 'Bills', icon: 'bills' },
   income:   { title: 'Income', short: 'Income', icon: 'income' },
   accounts: { title: 'Accounts', short: 'Accounts', icon: 'accounts' },
-  history:  { title: 'History', short: 'History', icon: 'history' },
+  whatif:   { title: 'What If', short: 'What If', icon: 'sparkles' },
+  history:  { title: 'History', short: 'History', icon: 'history', nav: false },
   settings: { title: 'Settings', short: 'Settings', icon: 'settings' }
 };
 let renderedDay = '';
@@ -298,8 +299,9 @@ function render() {
 
 function renderShell() {
   const counts = { bills: S.bills.length, income: S.income.length, accounts: S.accounts.length };
-  document.getElementById('nav').innerHTML = Object.entries(VIEWS).map(([k, v]) =>
-    `<button data-action="tab" data-tab="${k}" ${ui.view === k ? 'aria-current="page"' : ''} aria-label="${v.title}">${ic(v.icon)}<span class="long">${v.title}</span><span class="short">${v.short}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
+  const current = ui.view === 'history' ? 'accounts' : ui.view;
+  document.getElementById('nav').innerHTML = Object.entries(VIEWS).filter(([, v]) => v.nav !== false).map(([k, v]) =>
+    `<button data-action="tab" data-tab="${k}" ${current === k ? 'aria-current="page"' : ''} aria-label="${v.title}">${ic(v.icon)}<span class="long">${v.title}</span><span class="short">${v.short}</span>${counts[k] ? `<span class="count">${counts[k]}</span>` : ''}</button>`).join('');
 
   const side = document.getElementById('sideStatus');
   if (model) {
@@ -317,7 +319,8 @@ function renderShell() {
     overview: model ? [exportBtn, checkin] : [],
     bills: [add('bill', 'Add Bill')],
     income: [add('income', 'Add Income')],
-    accounts: [`<button class="btn has-lbl" data-action="checkin" title="Check In">${ic('checkin')}<span class="lbl">Check In</span></button>`, add('account', 'Add')],
+    accounts: [`<button class="btn has-lbl" data-action="tab" data-tab="history" title="History">${ic('history')}<span class="lbl">History</span></button>`, `<button class="btn has-lbl" data-action="checkin" title="Check In">${ic('checkin')}<span class="lbl">Check In</span></button>`, add('account', 'Add')],
+    whatif: [],
     history: [checkin],
     settings: [exportBtn]
   };
@@ -337,11 +340,12 @@ function renderBanners() {
 
 function renderView() {
   if (ui.view === 'overview' && !model) { app.innerHTML = welcomeHTML(); renderSyncStatus(); return; }
-  const views = { overview: overviewHTML, bills: billsView, income: incomeView, accounts: accountsView, history: historyView, settings: settingsView };
+  const views = { overview: overviewHTML, bills: billsView, income: incomeView, accounts: accountsView, whatif: whatIfView, history: historyView, settings: settingsView };
   const fade = lastView !== ui.view ? ' fade' : '';
   lastView = ui.view;
   app.innerHTML = `<div class="stack${fade}">${views[ui.view]()}</div>`;
   if (ui.view === 'overview') drawChart(model.all, model.ess, chartRange());
+  if (ui.view === 'whatif') drawCompare();
   renderSyncStatus();
 }
 const chartRange = () => Math.min(ui.range, S.settings.horizon);
@@ -378,7 +382,7 @@ const emptyHTML = (icon, color, title, text, btn = '') => `<div class="empty">${
  * Summary (overview)
  * ===================================================================== */
 function overviewHTML() {
-  return `${heroHTML()}${attentionHTML()}${chartCardHTML()}
+  return `${heroHTML()}${whatIfHint()}${attentionHTML()}${chartCardHTML()}
     <div class="cols">${upcomingHTML()}<div class="stack">${creditHTML()}${plannerHTML()}${categoriesHTML()}</div></div>`;
 }
 
@@ -1199,6 +1203,242 @@ function settle(kind, id) {
 }
 
 /* =====================================================================
+ * What If
+ * ===================================================================== */
+const WI = {
+  sell:    { icon: 'dollar',    color: 'green',  title: 'Sell Something',        desc: 'A car or other asset, with or without paying off its loan' },
+  bill:    { icon: 'bills',     color: 'orange', title: 'Pause or Change a Bill', desc: 'A mortgage deferral, a lower payment, or cancelling something' },
+  job:     { icon: 'briefcase', color: 'blue',   title: 'New Job',               desc: 'Paychecks start and unemployment stops' },
+  income:  { icon: 'income',    color: 'teal',   title: 'Extra Income',          desc: 'Side work, freelance, or a one-time payment' },
+  expense: { icon: 'cart',      color: 'red',    title: 'New Expense',           desc: 'A one-time cost or a new regular bill' }
+};
+const WI_H = () => Math.round(36 * MONTH);
+
+function wiRun(st) {
+  const t0 = today(), H = WI_H();
+  return { cash: C.simulate(st, { days: H }, t0), cred: C.creditSummary(st).cards ? C.creditProjection(st, { days: H }, t0) : null };
+}
+const wiMonths = r => (r.out < 0 ? WI_H() : r.out) / MONTH;
+function wiCovered(r) {
+  if (r.out < 0) return { big: '36+', date: 'beyond 3 years' };
+  if (r.out === 0) return { big: '0', date: 'below your cushion now' };
+  return { big: (r.out / MONTH).toFixed(1), date: 'until ' + fmtDate(addDays(today(), r.out), { month: 'short', day: 'numeric', year: 'numeric' }) };
+}
+const wiDelta = (a, b) => {
+  if (a.out < 0 && b.out < 0) return '';
+  const d = wiMonths(b) - wiMonths(a);
+  if (Math.abs(d) < 0.05) return '±0 months';
+  return `${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1)} month${Math.abs(d) >= 0.95 && Math.abs(d) < 1.05 ? '' : 's'}`;
+};
+const nameOf = (list, id) => { const x = list.find(i => i.id === id); return x ? x.name : 'a deleted item'; };
+
+function wiSummary(sc) {
+  const p = sc.p, d = v => safeDate(v, { month: 'short', day: 'numeric', year: 'numeric' }), f = v => FREQ[v].label.toLowerCase();
+  switch (sc.type) {
+    case 'sell': return `+${money(p.amount)} on ${d(p.date)}${p.billId ? ` · stops ${nameOf(S.bills, p.billId)}` : ''}${p.payoff ? ` · pays off ${money(p.payoff)}` : ''}`;
+    case 'bill': return p.mode === 'pause'
+      ? `Pauses ${nameOf(S.bills, p.billId)} for ${p.months} month${p.months === 1 ? '' : 's'} from ${d(p.from)}`
+      : p.amount === 0 ? `Cancels ${nameOf(S.bills, p.billId)} from ${d(p.from)}` : `${nameOf(S.bills, p.billId)} becomes ${money(p.amount)} from ${d(p.from)}`;
+    case 'job': return `+${money(p.amount)} ${f(p.freq)} from ${d(p.start)}${p.stopIncomeId ? ` · ends ${nameOf(S.income, p.stopIncomeId)}` : ''}`;
+    case 'income': return p.freq === 'once' ? `+${money(p.amount)} on ${d(p.start)}` : `+${money(p.amount)} ${f(p.freq)} from ${d(p.start)}${p.end ? ` to ${d(p.end)}` : ''}`;
+    case 'expense': return p.freq === 'once' ? `−${money(p.amount)} on ${d(p.start)}` : `−${money(p.amount)} ${f(p.freq)} from ${d(p.start)}${p.end ? ` to ${d(p.end)}` : ''}`;
+  }
+  return '';
+}
+
+let wiCache = null;
+function whatIfView() {
+  const on = S.scenarios.filter(x => x.on);
+  const base = wiRun(S), scen = on.length ? wiRun(C.applyScenarios(S, on)) : null;
+  wiCache = { base, scen };
+  const b = wiCovered(base.cash), w = scen ? wiCovered(scen.cash) : null;
+  const delta = scen ? wiDelta(base.cash, scen.cash) : '';
+  const credLine = base.cred ? `<div class="wi-credit">
+      <span class="l2">With the main card</span>
+      <span class="num"><b>${wiCovered(base.cred).big}</b> mo${scen && scen.cred ? ` → <b style="color:var(--blue)">${wiCovered(scen.cred).big}</b> mo` : ''}</span>
+    </div>` : '';
+  const compare = `<section class="card pad wi-compare">
+    <div class="wi-cols">
+      <div><div class="wi-k">Today</div><div class="wi-big num">${b.big}<small> mo</small></div><div class="foot13">${b.date}</div></div>
+      <div class="wi-arrow" aria-hidden="true">${ic('chevron')}</div>
+      <div><div class="wi-k" style="color:var(--blue)">With what-ifs on</div>
+        ${w ? `<div class="wi-big num" style="color:var(--blue)">${w.big}<small> mo</small></div><div class="foot13">${w.date}</div>`
+            : '<div class="wi-big l3">—</div><div class="foot13">Switch on a scenario below</div>'}</div>
+      ${delta ? `<span class="tag ${delta.startsWith('+') ? 'green' : delta.startsWith('−') ? 'red' : ''} wi-delta">${delta}</span>` : ''}
+    </div>
+    ${credLine}
+    <div class="legend" style="padding:16px 0 0">
+      <span><i style="background:var(--gray)"></i>Today</span>
+      ${scen ? '<span><i style="background:var(--s1)"></i>With what-ifs</span>' : ''}
+    </div>
+    <div class="chart-box" id="wiChart" style="margin:10px 0 0"></div>
+  </section>`;
+
+  const rows = S.scenarios.map(sc => {
+    const t = WI[sc.type], alone = wiRun(C.applyScenarios(S, [sc]));
+    const d = wiDelta(base.cash, alone.cash), dc = base.cred && alone.cred ? wiDelta(base.cred, alone.cred) : '';
+    return `<div class="list-row has-tile split">
+      <button type="button" class="row-main" data-action="scenario-edit" data-id="${esc(sc.id)}" aria-label="Edit ${esc(sc.name)}">
+        ${tile(t.icon, t.color)}
+        <div class="body">
+          <div class="t">${esc(sc.name)}</div>
+          <div class="s" style="white-space:normal">${esc(wiSummary(sc))}</div>
+          <div class="wi-impact"><span class="tag ${d.startsWith('+') ? 'green' : d.startsWith('−') ? 'red' : ''}">${d || 'No change'}</span>${dc && dc !== d ? `<span class="foot13">${dc} with card</span>` : ''}</div>
+        </div>
+      </button>
+      <input type="checkbox" class="switch row-switch" data-action="scenario-toggle" data-id="${esc(sc.id)}" ${sc.on ? 'checked' : ''} aria-label="Include ${esc(sc.name)}">
+    </div>`;
+  }).join('');
+
+  const templates = Object.entries(WI).map(([k, t]) => `<button type="button" class="list-row has-tile" data-action="scenario-new" data-type="${k}">${tile(t.icon, t.color)}<div class="body"><div class="t">${t.title}</div><div class="s" style="white-space:normal">${t.desc}</div></div>${ic('chevron', 'chev')}</button>`).join('');
+
+  return `${compare}
+  <div>
+    <div class="sect"><span>Scenarios</span><span>${on.length} of ${S.scenarios.length} on</span></div>
+    ${S.scenarios.length ? `<div class="group">${rows}</div>` : `<div class="group">${emptyHTML('sparkles', 'blue', 'No Scenarios Yet', 'Pick one below to see how it changes your runway. Your real numbers never change.')}</div>`}
+    <div class="sect-foot">The number on each scenario is what it adds on its own. Switch several on to see them combined at the top. Scenarios never change your real bills, income or balances, and your household sees the same ones.</div>
+  </div>
+  <div>
+    <div class="sect"><span>Add a Scenario</span></div>
+    <div class="group">${templates}</div>
+  </div>`;
+}
+
+/* Two-line comparison chart: today vs with what-ifs. */
+function drawCompare() {
+  const box = document.getElementById('wiChart');
+  if (!box || !wiCache) return;
+  const { base, scen } = wiCache;
+  const W = Math.max(280, box.clientWidth || 300), Hh = W < 560 ? 210 : 260;
+  const M = { l: 46, r: 8, t: 14, b: 26 };
+  const t0 = today(), days = Math.round(24 * MONTH);
+  const series = [{ bal: base.cash.bal, out: base.cash.out, color: 'var(--gray)', w: 2 }];
+  if (scen) series.push({ bal: scen.cash.bal, out: scen.cash.out, color: 'var(--s1)', w: 2.25 });
+  let lo = Math.min(0, S.settings.cushion), hi = Math.max(0, S.settings.cushion);
+  for (const s of series) for (let d = 0; d <= days; d++) { lo = Math.min(lo, s.bal[d]); hi = Math.max(hi, s.bal[d]); }
+  if (hi - lo < 1) hi = lo + 1000;
+  lo = Math.max(lo, -Math.max(hi * 0.3, S.settings.cushion, 2000));
+  const step = niceStep(hi - lo, 4);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const x = d => M.l + d / days * (W - M.l - M.r);
+  const y = v => M.t + (hi - v) / (hi - lo) * (Hh - M.t - M.b);
+  const plotW = W - M.l - M.r;
+  let g = `<defs><clipPath id="wiClip"><rect x="${M.l}" y="${M.t - 6}" width="${plotW}" height="${Hh - M.t - M.b + 6}"/></clipPath></defs>`;
+  for (let v = lo; v <= hi + step / 2; v += step) g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-dasharray="2 4"/><text x="${M.l - 10}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="rgba(235,235,245,.5)">${compact(v)}</text>`;
+  if (lo < 0) g += `<rect x="${M.l}" y="${y(0)}" width="${plotW}" height="${Hh - M.b - y(0)}" fill="rgba(255,69,58,.07)"/>`;
+  g += `<line x1="${M.l}" x2="${W - M.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)"/>`;
+  let mt = new Date(t0.getFullYear(), t0.getMonth() + 1, 1), idx = 0;
+  const every = W < 560 ? 6 : 3;
+  while (daysBetween(t0, mt) <= days) {
+    if (idx % every === 0) { const mon = mt.toLocaleDateString(undefined, { month: 'short' }); g += `<text x="${x(daysBetween(t0, mt))}" y="${Hh - 6}" text-anchor="middle" font-size="11" fill="rgba(235,235,245,.5)">${mt.getMonth() === 0 || idx === 0 ? `${mon} ’${String(mt.getFullYear()).slice(2)}` : mon}</text>`; }
+    mt = new Date(mt.getFullYear(), mt.getMonth() + 1, 1); idx++;
+  }
+  const seg = (bal, a, b) => { let p = ''; for (let d = a; d <= b; d++) p += (d === a ? 'M' : 'L') + x(d).toFixed(1) + ' ' + y(bal[d]).toFixed(1); return p; };
+  g += '<g clip-path="url(#wiClip)">';
+  for (const s of series) {
+    const cut = s.out < 0 || s.out > days ? days : s.out;
+    g += `<path d="${seg(s.bal, 0, cut)}" fill="none" stroke="${s.color}" stroke-width="${s.w}" stroke-linejoin="round"/>`;
+    if (cut < days) g += `<path d="${seg(s.bal, cut, days)}" fill="none" stroke="${s.color}" stroke-width="${s.w}" stroke-opacity=".28" stroke-dasharray="3 4"/>`;
+  }
+  g += '</g>';
+  for (const s of series) if (s.out >= 0 && s.out <= days) g += `<circle cx="${x(s.out)}" cy="${y(s.bal[s.out])}" r="5" fill="${s.color}" stroke="var(--bg-2)" stroke-width="2.5"/>`;
+  g += `<g id="wiHover" style="display:none"><line id="wiHx" y1="${M.t}" y2="${Hh - M.b}" stroke="rgba(235,235,245,.35)"/></g><rect id="wiHit" x="${M.l}" y="${M.t}" width="${plotW}" height="${Hh - M.t - M.b}" fill="transparent"/>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Cash balance today versus with what-ifs, next 24 months">${g}</svg><div class="tip" id="wiTip"></div>`;
+  const svg = box.querySelector('svg'), tip = box.querySelector('#wiTip'), hov = svg.querySelector('#wiHover'), hx = svg.querySelector('#wiHx');
+  const move = ev => {
+    const r = svg.getBoundingClientRect(), d = Math.max(0, Math.min(days, Math.round(((ev.clientX - r.left) * (W / r.width) - M.l) / plotW * days)));
+    hov.style.display = ''; hx.setAttribute('x1', x(d)); hx.setAttribute('x2', x(d));
+    tip.innerHTML = `<div class="t">${fmtDate(addDays(t0, d), { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>
+      <div class="row"><span><i style="background:var(--gray)"></i>Today</span><b class="num">${money(base.cash.bal[d])}</b></div>
+      ${scen ? `<div class="row"><span><i style="background:var(--s1)"></i>With what-ifs</span><b class="num">${money(scen.cash.bal[d])}</b></div>` : ''}`;
+    tip.style.display = 'block';
+    const bx = box.getBoundingClientRect(), tx = ev.clientX - bx.left;
+    tip.style.top = '0px'; tip.style.left = (tx + 16 + tip.offsetWidth > bx.width ? Math.max(0, tx - tip.offsetWidth - 16) : tx + 16) + 'px';
+  };
+  const hit = svg.querySelector('#wiHit');
+  hit.addEventListener('pointermove', move); hit.addEventListener('pointerdown', move);
+  hit.addEventListener('pointerleave', () => { hov.style.display = 'none'; tip.style.display = 'none'; });
+}
+
+/* Summary: a short line when what-ifs are on. */
+function whatIfHint() {
+  const on = S.scenarios.filter(x => x.on);
+  if (!on.length) return '';
+  const H = Math.round(S.settings.horizon * MONTH), t0 = today();
+  const r = C.simulate(C.applyScenarios(S, on), { days: H }, t0);
+  const d = wiDelta(model.all, r);
+  const when = r.out < 0 ? `beyond ${S.settings.horizon} months` : 'until ' + fmtDate(addDays(t0, r.out), { month: 'short', day: 'numeric', year: 'numeric' });
+  return `<div class="group"><button type="button" class="list-row has-tile" data-action="tab" data-tab="whatif">${tile('sparkles', 'blue')}<div class="body"><div class="t">With ${on.length} what-if${on.length === 1 ? '' : 's'} on: covered ${when}</div><div class="s">${d ? `${d} versus today · ` : ''}${esc(on.map(x => x.name).join(', '))}</div></div>${ic('chevron', 'chev')}</button></div>`;
+}
+
+/* Scenario sheet */
+function editScenario(existing, type) {
+  const isNew = !existing;
+  const t = type || existing.type, info = WI[t];
+  const p = existing ? existing.p : {};
+  const d0 = iso(addDays(today(), 30));
+  const billOpts = (sel, none) => `<select name="billId">${none ? `<option value="">${none}</option>` : ''}${S.bills.filter(b => b.freq !== 'once').map(b => `<option value="${esc(b.id)}" ${sel === b.id ? 'selected' : ''}>${esc(b.name)} (${money(b.amount)})</option>`).join('')}</select>`;
+  const incomeGuess = (S.income.find(i => i.remaining > 0 || /unemploy|benefit/i.test(i.name)) || {}).id || '';
+  const freqs = (v, once) => `<select name="freq">${Object.entries(FREQ).filter(([k]) => once || k !== 'once').map(([k, f]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${f.label}</option>`).join('')}</select>`;
+  const name = frow('Name', `<input type="text" name="name" required maxlength="120" value="${esc(existing ? existing.name : '')}" placeholder="${{ sell: 'Sell the Corvette', bill: 'Mortgage deferral', job: 'New job', income: 'Freelance work', expense: 'New expense' }[t]}">`);
+  const amt = (label, v, ph = '$0.00') => frow(label, `<input type="text" inputmode="decimal" name="amount" value="${esc(v ?? '')}" placeholder="${ph}">`);
+  let body = '';
+  if (t === 'sell') body = `${grp(name, amt('Sale Amount', p.amount), frow('Date', `<input type="date" name="date" value="${esc(p.date || d0)}">`))}${gap}
+    ${grp(frow('Stops a Payment', billOpts(p.billId || '', 'None, keep paying')), frow('Loan Payoff', `<input type="text" inputmode="decimal" name="payoff" value="${esc(p.payoff || '')}" placeholder="Optional">`))}
+    ${note('To keep a loan after selling (like the LightStream loan on the Corvette), leave Stops a Payment on None. To pay a loan off from the sale, pick its payment and enter the payoff amount.')}`;
+  else if (t === 'bill') body = `${grp(name, frow('Bill', billOpts(p.billId || '')), frow('Change', `<select name="mode"><option value="pause" ${p.mode !== 'change' ? 'selected' : ''}>Pause it</option><option value="change" ${p.mode === 'change' ? 'selected' : ''}>New amount</option></select>`), frow('Starting', `<input type="date" name="from" value="${esc(p.from || iso(new Date(today().getFullYear(), today().getMonth() + 1, 1)))}">`),
+      `<label class="frow" data-for-mode="pause" ${p.mode === 'change' ? 'hidden' : ''}><span>For How Many Months</span><input type="number" name="months" min="1" max="36" value="${esc(p.months || 3)}"></label>`,
+      `<label class="frow" data-for-mode="change" ${p.mode === 'change' ? '' : 'hidden'}><span>New Amount</span><input type="text" inputmode="decimal" name="newAmount" value="${esc(p.mode === 'change' ? p.amount : '')}" placeholder="$0 cancels it"></label>`)}
+    ${note('Pause for a mortgage deferral or a lender hardship plan: payments stop, then resume. New amount for a lower payment from a date on; $0 cancels the bill.')}`;
+  else if (t === 'job') body = `${grp(name, amt('Take-Home Pay', p.amount, 'Per paycheck'), frow('Paid', freqs(p.freq || 'biweekly')), frow('First Paycheck', `<input type="date" name="start" value="${esc(p.start || d0)}">`))}${gap}
+    ${grp(frow('Ends Income', `<select name="stopIncomeId"><option value="">Nothing</option>${S.income.map(i => `<option value="${esc(i.id)}" ${(existing ? p.stopIncomeId : incomeGuess) === i.id ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}</select>`))}
+    ${note('Unemployment usually stops when a job starts, so it ends the day before the first paycheck.')}`;
+  else body = `${grp(name, amt('Amount', p.amount), frow('Repeats', freqs(p.freq || (t === 'income' ? 'monthly' : 'once'), true)), frow('Starts', `<input type="date" name="start" value="${esc(p.start || d0)}">`), frow('Ends', `<input type="date" name="end" value="${esc(p.end || '')}">`))}
+    ${t === 'expense' ? gap + grp(frow('Can Pay by Card', `<input type="checkbox" class="switch" name="card" ${p.card ? 'checked' : ''}>`), frow('Essential', `<input type="checkbox" class="switch" name="essential" ${p.essential !== false ? 'checked' : ''}>`)) : ''}
+    ${note(t === 'income' ? 'Use One time for a single payment, like a bonus or a sale.' : 'Use One time for a single cost, like a repair or a trip.')}`;
+  const del = isNew ? '' : gap + grp(`<button type="button" class="list-row action-row destructive" data-action="scenario-del" data-id="${esc(existing.id)}">Delete Scenario</button>`);
+  openDialog(isNew ? info.title : 'Edit Scenario', `<div class="lead">${info.desc}. This doesn’t change your real numbers.</div>${body}${del}`, isNew ? 'Add' : 'Done', fd => {
+    const nm = String(fd.name || '').trim().slice(0, 120) || (WI[t].title);
+    const dateOk = (v, f) => (isISODate(v) ? null : { error: 'Enter a valid date.', field: f });
+    let q;
+    if (t === 'sell') {
+      const amount = amountOf(fd.amount, { allowZero: false }); if (amount === null) return { error: 'Enter the sale amount.', field: 'amount' };
+      const e = dateOk(fd.date, 'date'); if (e) return e;
+      const payoff = String(fd.payoff || '').trim() ? amountOf(fd.payoff) : 0; if (payoff === null) return { error: 'Enter the payoff as a number, or leave it blank.', field: 'payoff' };
+      q = { amount, date: fd.date, billId: fd.billId || '', payoff };
+    } else if (t === 'bill') {
+      if (!fd.billId) return { error: 'Choose a bill.', field: 'billId' };
+      const e = dateOk(fd.from, 'from'); if (e) return e;
+      if (fd.mode === 'change') {
+        const a = amountOf(fd.newAmount); if (a === null) return { error: 'Enter the new amount ($0 cancels it).', field: 'newAmount' };
+        q = { billId: fd.billId, mode: 'change', from: fd.from, months: 3, amount: a };
+      } else {
+        const m = Math.round(finite(fd.months, NaN)); if (!(m >= 1 && m <= 36)) return { error: 'Enter 1 to 36 months.', field: 'months' };
+        q = { billId: fd.billId, mode: 'pause', from: fd.from, months: m, amount: 0 };
+      }
+    } else if (t === 'job') {
+      const amount = amountOf(fd.amount, { allowZero: false }); if (amount === null) return { error: 'Enter the take-home pay per paycheck.', field: 'amount' };
+      const e = dateOk(fd.start, 'start'); if (e) return e;
+      q = { amount, freq: fd.freq, start: fd.start, stopIncomeId: fd.stopIncomeId || '' };
+    } else {
+      const amount = amountOf(fd.amount, { allowZero: false }); if (amount === null) return { error: 'Enter an amount greater than $0.', field: 'amount' };
+      const e = dateOk(fd.start, 'start'); if (e) return e;
+      if (fd.end && (!isISODate(fd.end) || fd.end < fd.start)) return { error: 'The end date must be after the start, or blank.', field: 'end' };
+      q = { amount, freq: fd.freq, start: fd.start, end: fd.end || '', ...(t === 'expense' ? { card: !!fd.card, essential: !!fd.essential } : {}) };
+    }
+    const rec = C.normalizeState({ scenarios: [{ id: existing ? existing.id : C.uid(), name: nm, type: t, on: existing ? existing.on : true, p: q }] }).state.scenarios[0];
+    if (!rec) return { error: 'That scenario isn’t complete yet.' };
+    const i = existing ? S.scenarios.findIndex(x => x.id === existing.id) : -1;
+    if (i >= 0) S.scenarios[i] = rec; else { if (S.scenarios.length >= 30) return { error: 'You can keep up to 30 scenarios. Delete one first.' }; S.scenarios.push(rec); }
+    return { label: isNew ? `Added ${nm}` : `Saved ${nm}` };
+  });
+}
+form.addEventListener('change', e => {
+  if (e.target.name !== 'mode') return;
+  form.querySelectorAll('[data-for-mode]').forEach(el => { el.hidden = el.dataset.forMode !== e.target.value; });
+});
+
+/* =====================================================================
  * Add to Home Screen
  * ===================================================================== */
 const APP_URL = 'https://claude.ai/artifact/WAduFqicBoRPJeEwuvM7ci';
@@ -1587,6 +1827,15 @@ document.addEventListener('click', e => {
     case 'delck': commit('Check-in deleted.', () => { S.checkins = S.checkins.filter(c => c.date !== el.dataset.date); }); break;
     case 'tab': if (VIEWS[el.dataset.tab]) { ui.view = el.dataset.tab; render(); window.scrollTo({ top: 0 }); } break;
     case 'homescreen': homeScreenDialog(); break;
+    case 'scenario-new': editScenario(null, el.dataset.type); break;
+    case 'scenario-edit': { const sc = S.scenarios.find(x => x.id === el.dataset.id); if (sc) editScenario(sc); break; }
+    case 'scenario-toggle': { const sc = S.scenarios.find(x => x.id === el.dataset.id); if (sc) { sc.on = el.checked; render(); } break; }
+    case 'scenario-del': {
+      const sc = S.scenarios.find(x => x.id === el.dataset.id); if (!sc) return;
+      if (dlg.open) dlg.close();
+      commit(`Deleted ${sc.name}.`, () => { S.scenarios = S.scenarios.filter(x => x !== sc); });
+      break;
+    }
     case 'copylink': copyLink(el); break;
     case 'toggle-checkins': ui.showAllCheckins = !ui.showAllCheckins; render(); break;
     case 'toggle-upcoming': ui.showAllUpcoming = !ui.showAllUpcoming; render(); break;
@@ -1653,7 +1902,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 setInterval(checkDay, 60000);
 
 let rz;
-window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { try { if (ui.view === 'overview' && model) drawChart(model.all, model.ess, chartRange()); } catch (err) {} }, 150); });
+window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { try { if (ui.view === 'overview' && model) drawChart(model.all, model.ess, chartRange()); if (ui.view === 'whatif') drawCompare(); } catch (err) {} }, 150); });
 window.addEventListener('error', ev => { console.error(ev.error || ev.message); toast('Something went wrong. Your data is saved; try reloading if things look off.'); });
 window.addEventListener('unhandledrejection', ev => { console.error(ev.reason); });
 

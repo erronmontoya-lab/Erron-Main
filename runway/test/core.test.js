@@ -323,3 +323,68 @@ test('credit strategy: carrying from now reaches the same runway but costs more 
   assert.ok(b.interest > a.interest);
   assert.equal(C.normalizeState({ settings: { creditStrategy: 'weird' } }).state.settings.creditStrategy, 'late');
 });
+
+/* ---------- what-if scenarios ---------- */
+const wiBase = () => C.normalizeState({
+  accounts: [{ id: 'a', name: 'Savings', balance: 20000 }],
+  bills: [
+    { id: 'mort', name: 'Mortgage', amount: 5000, freq: 'monthly', next: '2026-12-01' },
+    { id: 'car', name: 'Car', amount: 1000, freq: 'monthly', next: '2026-11-20' }
+  ],
+  income: [{ id: 'ui', name: 'Unemployment', amount: 400, freq: 'weekly', next: '2026-11-11' }]
+}).state;
+const sc = (type, p, extra = {}) => C.normalizeState({ scenarios: [{ id: 's1', name: 'Test', type, on: true, p, ...extra }] }).state.scenarios[0];
+const runOut = s => C.simulate(s, { days: 1100 }, TODAY).out;
+
+test('scenarios never change the real data', () => {
+  const s = wiBase(), before = JSON.stringify(s);
+  C.applyScenarios(s, [sc('bill', { billId: 'mort', mode: 'pause', from: '2026-12-01', months: 3 })]);
+  assert.equal(JSON.stringify(s), before);
+});
+
+test('selling something adds cash on the date and can stop its payment', () => {
+  const s = wiBase();
+  const keep = C.applyScenarios(s, [sc('sell', { amount: 30000, date: '2027-01-15' })]);
+  const stop = C.applyScenarios(s, [sc('sell', { amount: 30000, date: '2027-01-15', billId: 'car', payoff: 25000 })]);
+  assert.ok(runOut(keep) > runOut(s));
+  assert.equal(stop.bills.find(b => b.id === 'car').end, '2027-01-14');
+  assert.ok(stop.bills.some(b => b.name.includes('loan payoff') && b.amount === 25000));
+  assert.equal(C.occurrences(stop.bills.find(b => b.id === 'car'), C.parse('2028-01-01')).map(C.iso).pop(), '2026-12-20');
+});
+
+test('pausing a bill skips exactly that many months, then it resumes', () => {
+  const s = C.applyScenarios(wiBase(), [sc('bill', { billId: 'mort', mode: 'pause', from: '2026-12-01', months: 3 })]);
+  const dates = s.bills.filter(b => b.name === 'Mortgage').flatMap(b => C.occurrences(b, C.parse('2027-06-30'))).map(C.iso).sort();
+  assert.deepEqual(dates, ['2027-03-01', '2027-04-01', '2027-05-01', '2027-06-01']);
+});
+
+test('changing a bill amount applies from the date; $0 cancels it', () => {
+  const lower = C.applyScenarios(wiBase(), [sc('bill', { billId: 'car', mode: 'change', from: '2027-01-01', amount: 400 })]);
+  const amounts = lower.bills.filter(b => b.name === 'Car').flatMap(b => C.occurrences(b, C.parse('2027-02-28')).map(d => [C.iso(d), b.amount])).sort();
+  assert.deepEqual(amounts, [['2026-11-20', 1000], ['2026-12-20', 1000], ['2027-01-20', 400], ['2027-02-20', 400]]);
+  const cancel = C.applyScenarios(wiBase(), [sc('bill', { billId: 'car', mode: 'change', from: '2027-01-01', amount: 0 })]);
+  assert.equal(cancel.bills.filter(b => b.name === 'Car').length, 1);
+});
+
+test('a new job adds pay and stops the chosen income the day before it starts', () => {
+  const s = C.applyScenarios(wiBase(), [sc('job', { amount: 3000, freq: 'biweekly', start: '2027-02-05', stopIncomeId: 'ui' })]);
+  assert.equal(s.income.find(i => i.id === 'ui').end, '2027-02-04');
+  assert.ok(s.income.some(i => i.amount === 3000 && i.next === '2027-02-05'));
+  assert.equal(runOut(s), -1, 'a $3,000 biweekly job covers these bills');
+});
+
+test('extra income and new expenses move the runway in the right direction', () => {
+  const s = wiBase();
+  assert.ok(runOut(C.applyScenarios(s, [sc('income', { amount: 1500, freq: 'monthly', start: '2026-12-01' })])) > runOut(s));
+  assert.ok(runOut(C.applyScenarios(s, [sc('expense', { amount: 3000, freq: 'once', start: '2026-12-01' })])) < runOut(s));
+});
+
+test('scenarios combine, and bad or unknown ones are dropped', () => {
+  const s = wiBase();
+  const a = sc('sell', { amount: 30000, date: '2027-01-15' }), b = { ...sc('bill', { billId: 'mort', mode: 'pause', from: '2026-12-01', months: 3 }), id: 's2' };
+  const both = runOut(C.applyScenarios(s, [a, b]));
+  assert.ok(both > runOut(C.applyScenarios(s, [a])) && both > runOut(C.applyScenarios(s, [b])));
+  const n = C.normalizeState({ scenarios: [{ type: 'nope' }, { type: 'sell', p: { amount: 0, date: '2027-01-01' } }, { type: 'bill', p: { billId: 'x', from: 'bad' } }, a] }).state.scenarios;
+  assert.equal(n.length, 1);
+  assert.equal(C.normalizeState({ scenarios: [{ ...a, on: 'yes' }] }).state.scenarios[0].on, false, 'only true turns a scenario on');
+});
